@@ -29,7 +29,7 @@ Measured on one machine: an RTX PRO 6000 Blackwell Max-Q (shared with other work
 | rummage (C++ and CUDA) | 217 Mkeys/s | 10.9 GH/s | NVIDIA | no |
 | rana 0.5.5 | 1.2 to 1.4 Mkeys/s | none | none | no |
 
-ngrind's PoW kernel is rummage's, so the two match. The vanity gap is the method: rummage and rana compute every key with a full scalar multiplication, while ngrind steps along the curve from a random point and shares one field inversion across each batch of keys. rana uses every core, but each key goes through the generic `nostr-sdk` key path.
+ngrind's PoW kernel is rummage's, so the two match. The vanity gap is the method: rummage and rana compute every key with a full scalar multiplication, while ngrind steps along the curve from a random point and shares one field inversion across each batch of keys, as VanitySearch does. rana uses every core, but each key goes through the generic `nostr-sdk` key path.
 
 `--checkpoint` still uses the older scalar-multiply kernel (about 240 Mkeys/s), because its saved offsets follow that kernel's search order.
 
@@ -64,4 +64,4 @@ Found keys print to stdout. Progress, speed and the chance of a hit so far go to
 
 ## Credits
 
-The secp256k1 device maths in `ngrind/kernels/GPUMath.h` is from [VanitySearch](https://github.com/JeanLucPons/VanitySearch) by Jean Luc Pons (GPL-3.0). The vanity and PoW kernels, the NIP-13 nonce layout and the original GPU miner are from [rummage](https://github.com/rossbates/rummage) by rossbates (MIT, see `NOTICE`). Licensed GPL-3.0-or-later.
+The secp256k1 device maths in `ngrind/kernels/GPUMath.h` is from [VanitySearch](https://github.com/JeanLucPons/VanitySearch) by Jean Luc Pons (GPL-3.0). The stepped vanity search (`ngrind/kernels/step.cu` and its WGSL twin) is ngrind's own code, but it follows VanitySearch's method: walk out from a centre point in both directions and share one field inversion across the group. The PoW kernel, the NIP-13 nonce layout and the scalar-multiply vanity kernel kept for `--checkpoint` (`ngrind/kernels/vanity.cu`) are from [rummage](https://github.com/rossbates/rummage) by rossbates (MIT, see `NOTICE`). Licensed GPL-3.0-or-later.
