@@ -475,6 +475,13 @@ mod tests {
     #[test]
     #[cfg(feature = "wgpu")]
     fn a_run_moves_between_cpu_and_wgpu_and_keeps_counting() {
+        if !ngrind::backend::available()
+            .iter()
+            .any(|d| d.kind == ngrind::backend::Kind::Wgpu)
+        {
+            eprintln!("skipped: no wgpu adapter on this machine");
+            return;
+        }
         let ctx = egui::Context::default();
         let mut run = Run::start(
             &ctx,
