@@ -27,7 +27,7 @@ impl Default for VanityConfig {
     fn default() -> Self {
         VanityConfig {
             threads: 65536,
-            half: 16,
+            half: 64,
             fixed_iters: None,
             max_hits: 8,
         }
