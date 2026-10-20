@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "ngrind-ui"
 path = "src/main.rs"
@@ -17,9 +20,16 @@ wgpu = ["ngrind/wgpu"]
 
 [dependencies]
 ngrind = { path = "../ngrind", default-features = false }
-eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+web-time = "1"
 egui = "0.35"
 egui_bench = "0.5.4"
 secp256k1 = "0.33"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"

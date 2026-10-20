@@ -2,113 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<title>ngrind: vanity npubs and proof of work in your browser</title>
+<meta name="description" content="Mine vanity npubs and NIP-13 proof of work events on your GPU, in the browser. Nothing leaves your machine.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ngrind</title>
+<meta name="theme-color" content="#17191d">
 <style>
-  :root { --chassis:#17191d; --panel:#21242a; --well:#141619; --etch:#333841; --legend:#8b929c; --value:#d5dbe3; --readout:#f5a63b; --trace:#5cd0e8; --fault:#e26d5a; --ok:#5cb07a; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--chassis); color:var(--value); font:14px/1.4 "IBM Plex Sans Condensed", system-ui, sans-serif; }
-  header { display:flex; gap:24px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--etch); }
-  h1 { margin:0; font-size:16px; letter-spacing:.18em; font-weight:600; }
-  main { display:grid; grid-template-columns:340px 1fr; gap:10px; padding:10px; }
-  @media (max-width:760px) { main { grid-template-columns:1fr; } }
-  section { background:var(--panel); border:1px solid var(--etch); border-radius:2px; }
-  section > h2 { margin:0; padding:5px 10px; background:var(--well); border-bottom:1px solid var(--etch); font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--legend); font-weight:600; }
-  .body { padding:8px 10px 10px; display:grid; gap:6px; }
-  label { display:grid; grid-template-columns:90px 1fr; align-items:center; gap:8px; color:var(--legend); font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; }
-  input, select, textarea { background:var(--well); border:1px solid var(--etch); border-radius:2px; color:var(--value); padding:4px 6px; font:12.5px ui-monospace, "IBM Plex Mono", monospace; width:100%; }
-  button { background:var(--readout); color:#111; border:1px solid var(--readout); border-radius:2px; padding:7px 14px; font:600 12px/1 inherit; letter-spacing:.14em; text-transform:uppercase; cursor:pointer; }
-  button.stop { background:var(--fault); border-color:var(--fault); }
-  button:disabled { background:var(--well); border-color:var(--etch); color:var(--legend); cursor:default; }
-  .tabs { display:flex; } .tabs button { background:var(--well); color:var(--legend); border-color:var(--etch); } .tabs button.on { color:var(--readout); background:#2a2418; border-color:var(--readout); }
-  .hero { font:600 42px/1 ui-monospace, monospace; color:var(--trace); } .unit { font-size:14px; letter-spacing:.1em; color:var(--trace); opacity:.75; }
-  .row { display:flex; gap:18px; flex-wrap:wrap; } .k { color:var(--legend); font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; } .v { font:600 17px ui-monospace, monospace; color:var(--trace); }
-  .note { color:var(--legend); font-size:12px; } .bad { color:var(--fault); }
-  pre { margin:0; white-space:pre-wrap; word-break:break-all; font:12.5px ui-monospace, monospace; }
-  .hit { border-left:3px solid var(--ok); padding:6px 10px; background:var(--well); margin-top:6px; }
+  html, body { margin: 0; height: 100%; background: #17191d; overflow: hidden; }
+  canvas { width: 100%; height: 100%; display: block; outline: none; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; color: #8b929c; font: 14px sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 </style>
 </head>
 <body>
-<header><h1>NGRIND</h1><div class="tabs"><button id="t-npub" class="on">npub</button><button id="t-event">event</button></div><span class="note" id="gpu">looking for a GPU</span></header>
-<main>
-  <div style="display:grid;gap:10px;align-content:start">
-    <section id="npub"><h2>Vanity key</h2><div class="body">
-      <label>match<select id="alpha"><option value="npub">npub</option><option value="hex">hex</option></select></label>
-      <label>prefix<input id="prefix" placeholder="e.g. alice" autocomplete="off"></label>
-      <label>suffix<input id="suffix" placeholder="optional" autocomplete="off"></label>
-    </div></section>
-    <section id="event" hidden><h2>Event</h2><div class="body">
-      <label>public key<input id="pubkey" placeholder="npub1... or hex"></label>
-      <label>kind<input id="kind" type="number" value="1"></label>
-      <label>difficulty<input id="diff" type="number" value="24" min="1" max="64"></label>
-      <label>content<textarea id="content" rows="4" placeholder="the note to publish"></textarea></label>
-      <div class="note">This page cannot sign. Take created_at and the tags from the result and sign it in your client.</div>
-    </div></section>
-    <section><h2>Run</h2><div class="body">
-      <div class="note" id="status"></div>
-      <button id="go">start</button>
-    </div></section>
-  </div>
-  <div style="display:grid;gap:10px;align-content:start">
-    <section><h2>Search</h2><div class="body">
-      <div><span class="hero" id="rate">0</span> <span class="unit" id="unit">keys/s</span></div>
-      <div class="row">
-        <div><div class="k" id="doneName">keys searched</div><div class="v" id="done">0</div></div>
-        <div><div class="k">running</div><div class="v" id="time" style="color:var(--value)">0:00</div></div>
-        <div><div class="k">found</div><div class="v" id="found" style="color:var(--value)">0</div></div>
-      </div>
-    </div></section>
-    <section><h2>Found</h2><div class="body" id="hits"><div class="note">Nothing yet.</div></div></section>
-  </div>
-</main>
+<div id="loading">loading</div>
+<canvas id="ngrind"></canvas>
 <script type="module">
-import init, { adapters, vanity, pow } from "./ngrind_web.js";
-const $ = (id) => document.getElementById(id);
-const scaled = (v) => { const u = ["", "k", "M", "G", "T"]; let i = 0; while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; } return [v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2), u[i]]; };
-let mode = "npub", job = null, started = 0, last = [0, 0], timer = null;
-for (const m of ["npub", "event"]) $("t-" + m).onclick = () => {
-  if (job) return;
-  mode = m;
-  $("npub").hidden = m !== "npub"; $("event").hidden = m !== "event";
-  $("t-npub").classList.toggle("on", m === "npub"); $("t-event").classList.toggle("on", m === "event");
-  $("unit").textContent = m === "npub" ? "keys/s" : "hashes/s";
-  $("doneName").textContent = m === "npub" ? "keys searched" : "hashes tried";
-};
-await init();
-const list = await adapters();
-$("gpu").textContent = list.length ? list[0] : "no WebGPU adapter";
-if (!list.length) { $("status").innerHTML = '<span class="bad">This browser has no WebGPU. Try a recent Chrome, Edge or Safari.</span>'; $("go").disabled = true; }
-
-function finish() {
-  clearInterval(timer); timer = null;
-  const err = job.error(); if (err) $("status").innerHTML = '<span class="bad"></span>', $("status").firstChild.textContent = err;
-  else $("status").textContent = job.results().length ? "finished" : "stopped";
-  job = null; $("go").textContent = "start"; $("go").classList.remove("stop");
-}
-function tick() {
-  const now = performance.now() / 1000, done = job.done();
-  const dt = now - last[0];
-  if (dt >= 0.5) { const [r, p] = scaled((done - last[1]) / dt); $("rate").textContent = r; $("unit").textContent = p + (mode === "npub" ? "keys/s" : "hashes/s"); last = [now, done]; }
-  const [d, dp] = scaled(done); $("done").textContent = d + (dp ? " " + dp : "");
-  const t = Math.floor(now - started); $("time").textContent = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
-  const res = job.results(); $("found").textContent = res.length;
-  const box = $("hits"); box.replaceChildren();
-  if (!res.length) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Nothing yet."; box.append(n); }
-  for (const r of res) { const d = document.createElement("div"); d.className = "hit"; const p = document.createElement("pre"); p.textContent = r; d.append(p); box.append(d); }
-  if (job.finished()) finish();
-}
-$("go").onclick = () => {
-  if (job) { job.stop(); return; }
-  try {
-    job = mode === "npub"
-      ? vanity($("prefix").value, $("suffix").value, $("alpha").value === "hex", 1)
-      : pow($("pubkey").value, $("content").value, Number($("kind").value), Number($("diff").value), 1);
-  } catch (e) { $("status").textContent = String(e.message || e); return; }
-  started = performance.now() / 1000; last = [started, 0];
-  $("go").textContent = "stop"; $("go").classList.add("stop"); $("status").textContent = "searching";
-  timer = setInterval(tick, 250);
-};
-window.__ngrind = { get job() { return job; } };
+  import init, { start } from "./ngrind_web.js";
+  await init();
+  start();
 </script>
 </body>
 </html>

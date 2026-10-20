@@ -4,8 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 const WINDOW: f64 = 8.0;
 const SAMPLE_EVERY: Duration = Duration::from_millis(500);
@@ -197,7 +196,59 @@ impl Link {
     }
 }
 
-pub type Spawn = Box<dyn Fn(Backend, Link) -> JoinHandle<()>>;
+pub struct Handle {
+    done: Arc<AtomicBool>,
+    #[cfg(not(target_arch = "wasm32"))]
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+struct Finish(Arc<AtomicBool>);
+
+impl Drop for Finish {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Handle {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn spawn(work: impl FnOnce() + Send + 'static) -> Handle {
+        let done = Arc::new(AtomicBool::new(false));
+        let finish = Finish(done.clone());
+        let thread = std::thread::spawn(move || {
+            let _finish = finish;
+            work();
+        });
+        Handle {
+            done,
+            thread: Some(thread),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn spawn_local(work: impl std::future::Future<Output = ()> + 'static) -> Handle {
+        let done = Arc::new(AtomicBool::new(false));
+        let finish = Finish(done.clone());
+        wasm_bindgen_futures::spawn_local(async move {
+            let _finish = finish;
+            work.await;
+        });
+        Handle { done }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.done.load(Ordering::SeqCst)
+    }
+
+    pub fn join(self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(thread) = self.thread {
+            let _ = thread.join();
+        }
+    }
+}
+
+pub type Spawn = Box<dyn Fn(Backend, Link) -> Handle>;
 
 pub struct Run {
     pub kind: Kind,
@@ -218,7 +269,7 @@ pub struct Run {
     link: Link,
     rx: Receiver<Msg>,
     spawn: Spawn,
-    handle: Option<JoinHandle<()>>,
+    handle: Option<Handle>,
     next: Option<Backend>,
     banked: f64,
     since: Option<Instant>,
@@ -285,7 +336,7 @@ impl Run {
         self.next = None;
         self.link.stop();
         if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            h.join();
         }
     }
 
@@ -386,7 +437,7 @@ impl Run {
 
     fn worker_ended(&mut self) {
         if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            h.join();
         }
         match self.next.take() {
             Some(next) if self.error.is_none() && !self.limit_hit() => {
@@ -452,7 +503,7 @@ impl Drop for Run {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::work;

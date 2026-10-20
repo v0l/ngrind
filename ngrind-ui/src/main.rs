@@ -3,11 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-mod app;
-mod fmt;
-mod job;
-mod work;
-
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1120.0, 780.0])
@@ -24,6 +20,14 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "ngrind",
         options,
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+        Box::new(|cc| {
+            Ok(Box::new(ngrind_ui::app::App::new(
+                cc,
+                ngrind::backend::available(),
+            )))
+        }),
     )
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

@@ -1800,6 +1800,8 @@ dependencies = [
  "secp256k1",
  "serde",
  "serde_json",
+ "wasm-bindgen-futures",
+ "web-time",
 ]
 
 [[package]]
@@ -1807,9 +1809,9 @@ name = "ngrind-web"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
- "js-sys",
+ "eframe",
  "ngrind",
- "secp256k1",
+ "ngrind-ui",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

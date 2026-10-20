@@ -75,14 +75,41 @@ pub fn available() -> Vec<Backend> {
     all
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(target_arch = "wasm32")]
+pub async fn available_web() -> Vec<Backend> {
+    #[cfg(feature = "wgpu")]
+    {
+        crate::wgpu::list()
+            .await
+            .into_iter()
+            .enumerate()
+            .map(|(i, info)| Backend {
+                kind: Kind::Wgpu,
+                index: i,
+                name: info.label(),
+                software: info.software,
+            })
+            .collect()
+    }
+    #[cfg(not(feature = "wgpu"))]
+    {
+        Vec::new()
+    }
+}
+
 pub fn best(all: &[Backend]) -> Backend {
     all.iter()
         .find(|b| b.kind == Kind::Cuda)
         .or_else(|| all.iter().find(|b| b.kind == Kind::Wgpu && !b.software))
         .or_else(|| all.iter().find(|b| b.kind == Kind::Cpu))
+        .or_else(|| all.first())
         .cloned()
-        .expect("the cpu is always available")
+        .unwrap_or(Backend {
+            kind: Kind::Cpu,
+            index: 0,
+            name: String::new(),
+            software: false,
+        })
 }
 
 #[cfg(not(target_arch = "wasm32"))]

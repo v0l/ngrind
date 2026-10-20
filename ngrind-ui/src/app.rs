@@ -5,7 +5,7 @@ use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, Margin, Ui, Vec2};
 use egui_bench::prelude::*;
 use ngrind::Phase;
-use ngrind::backend::{Backend as Device, available, best};
+use ngrind::backend::{Backend as Device, best};
 use ngrind::event::{Template, parse_tags};
 use ngrind::pattern::{HEX_MAX, NPUB_CHARS};
 use ngrind::{Alphabet, Pattern, cpu, keys};
@@ -98,14 +98,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, devices: Vec<Device>) -> App {
         egui_bench::install(&cc.egui_ctx);
         let mut s: Settings = cc
             .storage
             .and_then(|st| st.get_string(STORAGE_KEY))
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default();
-        let devices = available();
         if !devices.iter().any(|d| d.kind == s.backend.kind()) {
             s.backend = Backend::of(best(&devices).kind);
         }
@@ -186,7 +185,7 @@ impl App {
         if run.live() && run.rate > 0.0 {
             self.s.rates[kind_slot(run.kind)][run.backend.slot()] = run.rate;
         }
-        if !self.s.save {
+        if !self.s.save || cfg!(target_arch = "wasm32") {
             run.saved_vanity = run.vanity.len();
             run.saved_pow = run.pow.len();
             return;
@@ -200,12 +199,15 @@ impl App {
         }
         run.saved_vanity = run.vanity.len();
         run.saved_pow = run.pow.len();
+        #[cfg(not(target_arch = "wasm32"))]
         for line in lines {
             self.notice = Some(match keys::record(&line) {
                 Ok(path) => (format!("saved to {}", path.display()), false),
                 Err(e) => (format!("could not save: {e}"), true),
             });
         }
+        #[cfg(target_arch = "wasm32")]
+        let _ = lines;
     }
 }
 
@@ -394,13 +396,20 @@ impl App {
                 Ok(t) => self.estimate(ui, t),
                 Err(e) => status(ui, false, e),
             }
-            switch(
-                ui,
-                "save",
-                &mut self.s.save,
-                "keep what is found",
-                "Appends to found.txt in the ngrind data folder, readable by you only.",
-            );
+            if cfg!(not(target_arch = "wasm32")) {
+                switch(
+                    ui,
+                    "save",
+                    &mut self.s.save,
+                    "keep what is found",
+                    "Appends to found.txt in the ngrind data folder, readable by you only.",
+                );
+            } else {
+                hint(
+                    ui,
+                    "Nothing is saved or sent anywhere. Copy what you find before closing the tab.",
+                );
+            }
             row(ui, "stop after", |ui| {
                 let one = self.s.stop_after == 1;
                 ui.add(
