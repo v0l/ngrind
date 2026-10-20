@@ -119,7 +119,9 @@ impl StepVanity {
         for _ in 0..SLOTS {
             let out = stream.alloc_zeros::<u32>(words)?;
             let host = unsafe { dev.ctx.alloc_pinned_with_flags::<u32>(words, 0) }?;
-            let done = dev.ctx.new_event(None)?;
+            let done = dev.ctx.new_event(Some(
+                cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC,
+            ))?;
             slots.push(Slot {
                 out,
                 host,

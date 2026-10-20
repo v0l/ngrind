@@ -166,7 +166,9 @@ impl PowMiner {
         for _ in 0..SLOTS {
             let device = stream.alloc_zeros::<u64>(OUT_WORDS)?;
             let host = unsafe { ctx.alloc_pinned_with_flags::<u64>(OUT_WORDS, 0) }?;
-            let done = ctx.new_event(None)?;
+            let done = ctx.new_event(Some(
+                cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC,
+            ))?;
             slots.push(Slot {
                 device,
                 host,

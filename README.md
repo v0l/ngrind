@@ -15,16 +15,23 @@ Mines vanity npubs and NIP-13 proof of work events on the GPU or the CPU. Three 
 | `ngrind` | library: the miners, event templates, key and pattern handling |
 | `ngrind-cli` | the `ngrind` command |
 | `ngrind-ui` | window in the bench-suite style, with a backend toggle that works mid-run |
-| `ngrind-web` | the same miners in a web page, on WebGPU |
+| `ngrind-web` | the full `ngrind-ui` app in the browser, with the wgpu and cpu backends |
 
-On an RTX PRO 6000 (a measured example, shared with other work):
+## Compared with rummage and rana
 
-| | cuda | wgpu | cpu, 48 threads |
-|---|---|---|---|
-| vanity keys | 12 Gkeys/s | 1.9 to 2.6 Gkeys/s | 9 Mkeys/s |
-| proof of work | 10.9 GH/s | 5.1 to 7.5 GH/s | 0.65 GH/s |
+Measured on one machine: an RTX PRO 6000 Blackwell Max-Q (shared with other work, so GPU figures vary by about 20 %) and 48 CPU threads. Vanity rates are for an npub prefix, PoW for a short kind 1 note.
 
-Both GPU vanity miners step along the curve and share one inversion across each batch of keys. `--checkpoint` still uses the older scalar-multiply kernel (about 240 Mkeys/s), because its saved offsets follow that kernel's search order.
+| | vanity keys | proof of work | GPU | in the browser |
+|---|---|---|---|---|
+| ngrind, cuda | 14 Gkeys/s | 7 to 11 GH/s | NVIDIA | no |
+| ngrind, wgpu | 1.4 to 2.6 Gkeys/s | 5 to 7.5 GH/s | any (Vulkan, Metal, DX12, WebGPU) | yes |
+| ngrind, cpu | 18 Mkeys/s | 0.65 GH/s | none | yes, with worker threads |
+| rummage (C++ and CUDA) | 217 Mkeys/s | 10.9 GH/s | NVIDIA | no |
+| rana 0.5.5 | 1.2 to 1.4 Mkeys/s | none | none | no |
+
+ngrind's PoW kernel is rummage's, so the two match. The vanity gap is the method: rummage and rana compute every key with a full scalar multiplication, while ngrind steps along the curve from a random point and shares one field inversion across each batch of keys. rana uses every core, but each key goes through the generic `nostr-sdk` key path.
+
+`--checkpoint` still uses the older scalar-multiply kernel (about 240 Mkeys/s), because its saved offsets follow that kernel's search order.
 
 ## Build
 
