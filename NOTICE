@@ -1,4 +1,5 @@
-ngrind includes code derived from rummage, copyright (c) 2025 rossbates, used under the MIT licence:
+The scalar-multiply vanity kernel in ngrind/kernels/vanity.cu is derived from rummage,
+copyright (c) 2025 rossbates, used under the MIT licence:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
