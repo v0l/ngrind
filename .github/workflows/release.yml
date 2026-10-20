@@ -44,7 +44,7 @@ jobs:
         with:
           cuda: "13.2.2"
           method: network
-          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "crt", "cudart", "curand", "curand_dev", "visual_studio_integration"]' || '["nvcc", "cudart"]' }}
+          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "nvvm", "crt", "cuxxfilt", "cudart", "curand", "curand_dev", "visual_studio_integration"]' || '["nvcc", "cudart"]' }}
           non-cuda-sub-packages: ${{ runner.os == 'Windows' && '[]' || '["libcurand-dev"]' }}
       - name: msvc for nvcc
         if: contains(matrix.features, 'cuda') && runner.os == 'Windows'
