@@ -454,6 +454,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cuda")]
     fn a_run_moves_between_devices_and_keeps_counting() {
         let ctx = egui::Context::default();
         let mut run = Run::start(
