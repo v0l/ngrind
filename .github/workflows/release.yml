@@ -40,7 +40,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libwayland-dev libxkbcommon-dev libx11-dev
       - name: cuda toolkit
         if: contains(matrix.features, 'cuda')
-        uses: Jimver/cuda-toolkit@v0.2.24
+        uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: "13.2.2"
           method: network
