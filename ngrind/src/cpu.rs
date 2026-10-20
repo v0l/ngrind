@@ -34,7 +34,7 @@ pub fn cores() -> usize {
 fn one() -> SecretKey {
     let mut bytes = [0u8; 32];
     bytes[31] = 1;
-    SecretKey::from_byte_array(bytes).expect("one is a valid secret")
+    SecretKey::from_secret_bytes(bytes).expect("one is a valid secret")
 }
 
 fn offset(i: u64) -> Option<Scalar> {
@@ -54,10 +54,9 @@ pub fn vanity(ctl: &dyn Control, pattern: &Pattern, threads: usize, found: OnFou
 }
 
 fn vanity_thread(link: &dyn Control, pattern: &Pattern, found: OnFound) {
-    let secp = keys::secp();
-    let step = PublicKey::from_secret_key(secp, &one());
+    let step = PublicKey::from_secret_key(&one());
     let mut base = keys::random_secret();
-    let mut point = PublicKey::from_secret_key(secp, &base);
+    let mut point = PublicKey::from_secret_key(&base);
     let mut i = 0u64;
     let mut batch = 0u64;
     loop {
@@ -67,9 +66,9 @@ fn vanity_thread(link: &dyn Control, pattern: &Pattern, found: OnFound) {
         if pattern.matches(&x)
             && !link.stopped()
             && let Some(secret) = offset(i).and_then(|o| base.add_tweak(&o).ok())
-            && keys::public_of(&secret.secret_bytes()).is_ok_and(|p| p == x)
+            && keys::public_of(&secret.to_secret_bytes()).is_ok_and(|p| p == x)
         {
-            found(secret.secret_bytes(), x);
+            found(secret.to_secret_bytes(), x);
         }
         i += 1;
         batch += 1;
@@ -78,7 +77,7 @@ fn vanity_thread(link: &dyn Control, pattern: &Pattern, found: OnFound) {
             Err(_) => {
                 base = keys::random_secret();
                 i = 0;
-                PublicKey::from_secret_key(secp, &base)
+                PublicKey::from_secret_key(&base)
             }
         };
         if batch == VANITY_BATCH {

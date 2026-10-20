@@ -144,6 +144,27 @@ impl Pattern {
         )
     }
 
+    pub fn symbol_bits(&self) -> u32 {
+        match self.alphabet {
+            Alphabet::Npub => 5,
+            Alphabet::Hex => 4,
+        }
+    }
+
+    pub fn symbols(&self) -> Vec<(u32, u32)> {
+        let total = self.alphabet.key_chars();
+        let head = self.prefix_values.iter().enumerate().map(|(i, v)| (i, *v));
+        let from = total - self.suffix_values.len();
+        let tail = self
+            .suffix_values
+            .iter()
+            .enumerate()
+            .map(move |(i, v)| (from + i, *v));
+        head.chain(tail)
+            .map(|(i, v)| (i as u32, v as u32))
+            .collect()
+    }
+
     pub fn describe(&self) -> String {
         let head = match self.alphabet {
             Alphabet::Npub => "npub1",

@@ -1,11 +1,5 @@
 use bech32::{Bech32, Hrp};
-use secp256k1::{Keypair, Secp256k1, SecretKey, SignOnly};
-use std::sync::OnceLock;
-
-pub fn secp() -> &'static Secp256k1<SignOnly> {
-    static CTX: OnceLock<Secp256k1<SignOnly>> = OnceLock::new();
-    CTX.get_or_init(Secp256k1::signing_only)
-}
+use secp256k1::{Keypair, SecretKey};
 
 pub fn encode(hrp: &str, bytes: &[u8; 32]) -> String {
     let hrp = Hrp::parse(hrp).expect("static hrp is valid");
@@ -21,14 +15,14 @@ pub fn nsec(secret: &[u8; 32]) -> String {
 }
 
 pub fn public_of(secret: &[u8; 32]) -> Result<[u8; 32], String> {
-    let sk = SecretKey::from_byte_array(*secret).map_err(|e| e.to_string())?;
-    let pair = Keypair::from_secret_key(secp(), &sk);
-    Ok(pair.x_only_public_key().0.serialize())
+    let sk = SecretKey::from_secret_bytes(*secret).map_err(|e| e.to_string())?;
+    let pair = Keypair::from_secret_key(&sk);
+    Ok(pair.x_only_public_key().0.to_byte_array())
 }
 
 pub fn random_secret() -> SecretKey {
     loop {
-        if let Ok(sk) = SecretKey::from_byte_array(rand::random::<[u8; 32]>()) {
+        if let Ok(sk) = SecretKey::from_secret_bytes(rand::random::<[u8; 32]>()) {
             return sk;
         }
     }

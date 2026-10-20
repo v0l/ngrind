@@ -1,11 +1,11 @@
 mod device;
 mod pow;
 mod run;
-mod sha;
 mod vanity;
 
+pub use crate::powlayout::PowHit;
 pub use device::{Device, device_count, device_name, devices};
-pub use pow::{PowHit, PowMiner};
+pub use pow::PowMiner;
 pub use run::{pow, vanity, vanity_sequential};
 pub use vanity::{Bech32Check, Config, SearchMode, VanityHit, VanityMiner, VanityMode};
 

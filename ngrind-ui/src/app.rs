@@ -1,10 +1,11 @@
 use crate::fmt;
 use crate::job::{Backend, Kind, PowHit, Run, VanityFound};
-use crate::work::{self, Cpu, Gpu};
+use crate::work;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, Margin, Ui, Vec2};
 use egui_bench::prelude::*;
 use ngrind::Phase;
+use ngrind::backend::{Backend as Device, available, best};
 use ngrind::event::{Template, parse_tags};
 use ngrind::pattern::{HEX_MAX, NPUB_CHARS};
 use ngrind::{Alphabet, Pattern, cpu, keys};
@@ -35,14 +36,14 @@ struct Settings {
     difficulty: u32,
     fast: bool,
     save: bool,
-    rates: [[f64; 2]; 2],
+    rates: [[f64; 3]; 2],
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Settings {
             kind: Kind::Npub,
-            backend: Backend::Gpu,
+            backend: Backend::Cuda,
             alphabet: Alphabet::Npub,
             prefix: String::new(),
             suffix: String::new(),
@@ -56,7 +57,7 @@ impl Default for Settings {
             difficulty: 24,
             fast: false,
             save: true,
-            rates: [[0.0; 2]; 2],
+            rates: [[0.0; 3]; 2],
         }
     }
 }
@@ -90,7 +91,7 @@ impl Target {
 pub struct App {
     s: Settings,
     nsec: String,
-    gpus: Vec<String>,
+    devices: Vec<Device>,
     run: Option<Run>,
     revealed: HashSet<usize>,
     notice: Option<(String, bool)>,
@@ -104,17 +105,16 @@ impl App {
             .and_then(|st| st.get_string(STORAGE_KEY))
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default();
-        let gpus = work::gpu_devices();
-        if gpus.is_empty() {
-            s.backend = Backend::Cpu;
+        let devices = available();
+        if !devices.iter().any(|d| d.kind == s.backend.kind()) {
+            s.backend = Backend::of(best(&devices).kind);
         }
-        s.device = s.device.min(gpus.len().saturating_sub(1) as u32);
         s.threads = s.threads.clamp(1, cpu::cores());
         s.stop_after = s.stop_after.clamp(1, 100);
         App {
             s,
             nsec: String::new(),
-            gpus,
+            devices,
             run: None,
             revealed: HashSet::new(),
             notice: None,
@@ -153,16 +153,12 @@ impl App {
     }
 
     fn begin(&mut self, ctx: &egui::Context, target: Target) {
-        let cpu = Cpu {
-            threads: self.s.threads,
-        };
-        let gpu = Gpu {
-            device: self.s.device,
-        };
+        let threads = self.s.threads;
+        let devices = self.devices.clone();
         let (kind, expected, label) = (self.s.kind, target.expected(), target.label());
         let spawn = match target {
-            Target::Vanity(pattern) => work::vanity(pattern, cpu, gpu),
-            Target::Event { template, secret } => work::pow(template, secret, cpu, gpu),
+            Target::Vanity(pattern) => work::vanity(pattern, threads, devices),
+            Target::Event { template, secret } => work::pow(template, secret, threads, devices),
         };
         self.revealed.clear();
         self.notice = None;
@@ -329,13 +325,14 @@ impl App {
             ui.add_space(28.0);
             Line::new().legend("device").show(ui);
             let mut backend = self.s.backend;
-            let options: &[(Backend, &str, Option<usize>)] = if self.gpus.is_empty() {
-                &[(Backend::Cpu, "cpu", None)]
-            } else {
-                &[(Backend::Gpu, "gpu", None), (Backend::Cpu, "cpu", None)]
-            };
+            let options: Vec<(Backend, &str, Option<usize>)> =
+                [Backend::Cuda, Backend::Wgpu, Backend::Cpu]
+                    .into_iter()
+                    .filter(|b| self.devices.iter().any(|d| d.kind == b.kind()))
+                    .map(|b| (b, b.label(), None))
+                    .collect();
             if ui
-                .push_id("device", |ui| segments(ui, &mut backend, options))
+                .push_id("device", |ui| segments(ui, &mut backend, &options))
                 .inner
             {
                 self.set_backend(backend);
@@ -373,10 +370,12 @@ impl App {
                 status(ui, true, &text);
             }
             _ => {
-                let text = match self.gpus.first() {
-                    Some(name) if self.s.backend == Backend::Gpu => name.clone(),
-                    _ => format!("{} cpu threads available", cpu::cores()),
-                };
+                let text = self
+                    .devices
+                    .iter()
+                    .find(|d| d.kind == self.s.backend.kind())
+                    .map(|d| d.label())
+                    .unwrap_or_default();
                 Line::new().note(text).show(ui);
             }
         });
@@ -557,43 +556,43 @@ impl App {
 
     fn device_form(&mut self, ui: &mut Ui, live: bool) {
         section(ui, "device", "", |ui| {
-            let gpu = self.s.backend == Backend::Gpu && !self.gpus.is_empty();
-            if gpu {
-                if self.gpus.len() > 1 {
-                    row(ui, "gpu", |ui| {
-                        ui.add_enabled_ui(!live, |ui| {
-                            let names = self.gpus.clone();
-                            choice(
-                                ui,
-                                "gpu",
-                                &mut self.s.device,
-                                names.into_iter().enumerate().map(|(i, n)| (i as u32, n)),
-                            );
-                        });
-                    });
-                } else if let Some(name) = self.gpus.first() {
-                    reading(ui, "gpu", name.clone());
-                }
-                hint(
-                    ui,
-                    "Switch to the cpu above at any time. The search carries on there.",
-                );
-            } else {
+            let kind = self.s.backend.kind();
+            let choices: Vec<&Device> = self.devices.iter().filter(|d| d.kind == kind).collect();
+            if kind == ngrind::backend::Kind::Cpu {
                 row(ui, "threads", |ui| {
                     ui.add_enabled(
                         !live,
                         egui::DragValue::new(&mut self.s.threads).range(1..=cpu::cores()),
                     );
                 });
-                if self.gpus.is_empty() {
-                    hint(ui, "No CUDA device was found, so only the cpu is offered.");
-                } else {
-                    hint(
-                        ui,
-                        "Switch to the gpu above at any time. The search carries on there.",
-                    );
-                }
+            } else if choices.len() > 1 {
+                row(ui, "gpu", |ui| {
+                    ui.add_enabled_ui(!live, |ui| {
+                        let names: Vec<(u32, String)> = choices
+                            .iter()
+                            .enumerate()
+                            .map(|(i, d)| (i as u32, d.name.clone()))
+                            .collect();
+                        choice(ui, "gpu", &mut self.s.device, names);
+                    });
+                });
+            } else if let Some(d) = choices.first() {
+                reading(ui, "gpu", d.name.clone());
             }
+            hint(
+                ui,
+                match kind {
+                    ngrind::backend::Kind::Cuda => {
+                        "NVIDIA only. Switch to wgpu or the cpu above at any time and the search carries on there."
+                    }
+                    ngrind::backend::Kind::Wgpu => {
+                        "Works on any GPU with Vulkan, Metal or DirectX 12. Slower than cuda on NVIDIA cards."
+                    }
+                    ngrind::backend::Kind::Cpu => {
+                        "Switch to a gpu above at any time and the search carries on there."
+                    }
+                },
+            );
         });
     }
 }

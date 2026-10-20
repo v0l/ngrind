@@ -1,5 +1,5 @@
 [workspace]
-members = ["ngrind", "ngrind-cli", "ngrind-ui"]
+members = ["ngrind", "ngrind-cli", "ngrind-ui", "ngrind-web"]
 resolver = "3"
 
 [workspace.package]

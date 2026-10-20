@@ -7,15 +7,40 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["cuda"]
+default = ["cuda", "wgpu"]
 cuda = ["dep:cudarc"]
+wgpu = ["dep:wgpu", "dep:futures-channel"]
 
 [dependencies]
 cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "nvrtc", "dynamic-loading", "cuda-12080"], optional = true }
-secp256k1 = "0.31"
+secp256k1 = "0.33"
 bech32 = "0.11"
 sha2 = { version = "0.10", features = ["compress"] }
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
+futures-channel = { version = "0.3", optional = true }
+web-time = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "29", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal", "dx12"], optional = true }
+pollster = "0.4"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+wgpu = { version = "29", default-features = false, features = ["std", "wgsl", "webgpu"], optional = true }
+web-sys = { version = "0.3", features = ["console"] }
+
+[dev-dependencies]
+naga = { version = "29", features = ["wgsl-in"] }
+num-bigint = "0.4"
+
+[[example]]
+name = "wgpu_pow_bench"
+required-features = ["wgpu"]
+
+[[example]]
+name = "wgpu_vanity_bench"
+required-features = ["wgpu"]

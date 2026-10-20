@@ -14,20 +14,39 @@ const LOG_LINES: usize = 200;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Backend {
-    Gpu,
+    #[serde(alias = "Gpu")]
+    Cuda,
+    Wgpu,
     Cpu,
 }
 
 impl Backend {
     pub fn label(self) -> &'static str {
         match self {
-            Backend::Gpu => "gpu",
+            Backend::Cuda => "cuda",
+            Backend::Wgpu => "wgpu",
             Backend::Cpu => "cpu",
         }
     }
 
     pub fn slot(self) -> usize {
         self as usize
+    }
+
+    pub fn kind(self) -> ngrind::backend::Kind {
+        match self {
+            Backend::Cuda => ngrind::backend::Kind::Cuda,
+            Backend::Wgpu => ngrind::backend::Kind::Wgpu,
+            Backend::Cpu => ngrind::backend::Kind::Cpu,
+        }
+    }
+
+    pub fn of(kind: ngrind::backend::Kind) -> Backend {
+        match kind {
+            ngrind::backend::Kind::Cuda => Backend::Cuda,
+            ngrind::backend::Kind::Wgpu => Backend::Wgpu,
+            ngrind::backend::Kind::Cpu => Backend::Cpu,
+        }
     }
 }
 
@@ -436,7 +455,7 @@ impl Drop for Run {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::work::{self, Cpu, Gpu};
+    use crate::work;
     use ngrind::{Alphabet, Pattern};
 
     fn wait(run: &mut Run, mut until: impl FnMut(&Run) -> bool) {
@@ -450,7 +469,36 @@ mod tests {
 
     fn long_search() -> Spawn {
         let pattern = Pattern::parse(Alphabet::Hex, "", "0123456789").unwrap();
-        work::vanity(pattern, Cpu { threads: 2 }, Gpu { device: 0 })
+        work::vanity(pattern, 2, ngrind::backend::available())
+    }
+
+    #[test]
+    #[cfg(feature = "wgpu")]
+    fn a_run_moves_between_cpu_and_wgpu_and_keeps_counting() {
+        let ctx = egui::Context::default();
+        let mut run = Run::start(
+            &ctx,
+            Kind::Npub,
+            Backend::Cpu,
+            "x".into(),
+            1e12,
+            1,
+            long_search(),
+        );
+        wait(&mut run, |r| r.done() > 100_000);
+        let before = run.done();
+        run.switch(Backend::Wgpu);
+        wait(&mut run, |r| {
+            r.backend == Backend::Wgpu && r.phase == Phase::Search && r.done() > before + 1_000_000
+        });
+        assert!(run.live() && run.error.is_none(), "{:?}", run.error);
+        run.switch(Backend::Cpu);
+        wait(&mut run, |r| {
+            r.backend == Backend::Cpu && r.phase == Phase::Search
+        });
+        run.shutdown();
+        run.poll();
+        assert!(run.error.is_none());
     }
 
     #[test]
@@ -468,10 +516,10 @@ mod tests {
         );
         wait(&mut run, |r| r.done() > 100_000);
         let before = run.done();
-        run.switch(Backend::Gpu);
-        assert_eq!(run.switching(), Some(Backend::Gpu));
+        run.switch(Backend::Cuda);
+        assert_eq!(run.switching(), Some(Backend::Cuda));
         wait(&mut run, |r| {
-            r.backend == Backend::Gpu && r.phase == Phase::Search && r.done() > before + 10_000_000
+            r.backend == Backend::Cuda && r.phase == Phase::Search && r.done() > before + 10_000_000
         });
         assert!(run.live() && run.error.is_none(), "{:?}", run.error);
         run.switch(Backend::Cpu);

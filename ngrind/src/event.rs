@@ -2,7 +2,7 @@ use crate::keys;
 use secp256k1::Keypair;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
+use web_time::{SystemTime, UNIX_EPOCH};
 
 pub type Tags = Vec<Vec<String>>;
 
@@ -146,7 +146,7 @@ impl Template {
         });
         let signed = match signer {
             Some(pair) => {
-                let sig = keys::secp().sign_schnorr_no_aux_rand(&id, pair);
+                let sig = secp256k1::schnorr::sign_no_aux_rand(&id, pair);
                 event["sig"] = json!(keys::hex(&sig.to_byte_array()));
                 true
             }
@@ -282,9 +282,9 @@ mod tests {
     #[test]
     fn signed_event_verifies() {
         let secret = keys::random_secret();
-        let pair = Keypair::from_secret_key(keys::secp(), &secret);
+        let pair = Keypair::from_secret_key(&secret);
         let mut t = template(false, "hi", vec![]);
-        t.pubkey = keys::hex(&pair.x_only_public_key().0.serialize());
+        t.pubkey = keys::hex(&pair.x_only_public_key().0.to_byte_array());
         let (text, id, signed) = t.event(1_700_000_000, 42, Some(&pair));
         assert!(signed);
         let v: Value = serde_json::from_str(&text).unwrap();

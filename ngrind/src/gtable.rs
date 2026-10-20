@@ -1,4 +1,3 @@
-use crate::keys;
 use secp256k1::{PublicKey, SecretKey};
 use std::sync::{Arc, OnceLock};
 
@@ -38,8 +37,7 @@ fn fill(chunk: usize, xs: &mut [u8], ys: &mut [u8]) {
     let mut scalar = [0u8; 32];
     scalar[31 - bit / 8] = 1 << (bit % 8);
     let base = PublicKey::from_secret_key(
-        keys::secp(),
-        &SecretKey::from_byte_array(scalar).expect("a power of two below the curve order"),
+        &SecretKey::from_secret_bytes(scalar).expect("a power of two below the curve order"),
     );
     let mut point = base;
     for j in 0..VALUES - 1 {
@@ -57,6 +55,7 @@ fn fill(chunk: usize, xs: &mut [u8], ys: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keys;
 
     #[test]
     fn first_entries_are_small_multiples_of_g() {

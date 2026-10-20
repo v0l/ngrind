@@ -21,7 +21,9 @@ struct Cli {
 
 #[derive(Clone, Copy, ValueEnum, PartialEq, Eq)]
 enum Device {
-    Gpu,
+    Auto,
+    Cuda,
+    Wgpu,
     Cpu,
 }
 
@@ -34,7 +36,7 @@ enum Command {
 
 #[derive(Parser)]
 struct Common {
-    #[arg(long, value_enum, default_value = "gpu")]
+    #[arg(long, value_enum, default_value = "auto")]
     device: Device,
 
     #[arg(long, default_value_t = 0)]
@@ -217,13 +219,17 @@ fn vanity(args: VanityArgs) -> Result<()> {
             progress.stop.store(true, Ordering::SeqCst);
         }
     };
-    let result = match args.common.device {
-        Device::Cpu => {
-            let threads = args.common.threads.unwrap_or_else(cpu::cores);
-            cpu::vanity(progress.as_ref(), &pattern, threads, &found);
-            Ok(())
+    let threads = args.common.threads.unwrap_or_else(cpu::cores);
+    let result = match (&args.checkpoint, args.common.device) {
+        (Some(path), Device::Auto | Device::Cuda) => {
+            sequential(&progress, &pattern, &args, path, &found)
         }
-        Device::Gpu => gpu_vanity(&progress, &pattern, &args, &found),
+        (Some(_), _) => Err("--checkpoint needs the CUDA backend".to_string()),
+        (None, _) => {
+            let backend = choose(&args.common)?;
+            eprintln!("using {}", backend.label());
+            ngrind::backend::vanity(&backend, progress.as_ref(), &pattern, threads, &found)
+        }
     };
     progress.stop.store(true, Ordering::SeqCst);
     let _ = reporter.join();
@@ -232,32 +238,50 @@ fn vanity(args: VanityArgs) -> Result<()> {
 }
 
 #[cfg(feature = "cuda")]
-fn gpu_vanity(
+fn sequential(
     progress: &Arc<Progress>,
     pattern: &Pattern,
     args: &VanityArgs,
+    path: &std::path::Path,
     found: ngrind::OnFound,
 ) -> Result<(), String> {
-    match &args.checkpoint {
-        Some(path) => ngrind::cuda::vanity_sequential(
-            progress.as_ref(),
-            pattern,
-            args.common.gpu,
-            path,
-            found,
-        ),
-        None => ngrind::cuda::vanity(progress.as_ref(), pattern, args.common.gpu, found),
-    }
+    ngrind::cuda::vanity_sequential(progress.as_ref(), pattern, args.common.gpu, path, found)
 }
 
 #[cfg(not(feature = "cuda"))]
-fn gpu_vanity(
+fn sequential(
     _: &Arc<Progress>,
     _: &Pattern,
     _: &VanityArgs,
+    _: &std::path::Path,
     _: ngrind::OnFound,
 ) -> Result<(), String> {
-    Err("this build has no GPU support, use --device cpu".into())
+    Err("this build has no CUDA support".into())
+}
+
+fn choose(common: &Common) -> Result<ngrind::backend::Backend> {
+    use ngrind::backend::{Kind, available, best};
+    let all = available();
+    let want = match common.device {
+        Device::Auto => return Ok(best(&all)),
+        Device::Cuda => Kind::Cuda,
+        Device::Wgpu => Kind::Wgpu,
+        Device::Cpu => Kind::Cpu,
+    };
+    all.into_iter()
+        .filter(|b| b.kind == want)
+        .nth(if want == Kind::Cpu {
+            0
+        } else {
+            common.gpu as usize
+        })
+        .with_context(|| {
+            format!(
+                "no {} device {} in this build or on this machine",
+                want.label(),
+                common.gpu
+            )
+        })
 }
 
 fn pow(args: PowArgs) -> Result<()> {
@@ -272,15 +296,14 @@ fn pow(args: PowArgs) -> Result<()> {
     let signer = match &args.nsec {
         Some(text) => {
             let secret = keys::parse_secret_any(text).map_err(anyhow::Error::msg)?;
-            Some(Keypair::from_secret_key(
-                keys::secp(),
-                &SecretKey::from_byte_array(secret)?,
-            ))
+            Some(Keypair::from_secret_key(&SecretKey::from_secret_bytes(
+                secret,
+            )?))
         }
         None => None,
     };
     let pubkey = match &signer {
-        Some(pair) => keys::hex(&pair.x_only_public_key().0.serialize()),
+        Some(pair) => keys::hex(&pair.x_only_public_key().0.to_byte_array()),
         None => event["pubkey"]
             .as_str()
             .context("the event has no pubkey and no --nsec was given")?
@@ -335,25 +358,17 @@ fn pow(args: PowArgs) -> Result<()> {
             progress.stop.store(true, Ordering::SeqCst);
         }
     };
-    let result = match args.common.device {
-        Device::Cpu => {
-            let threads = args.common.threads.unwrap_or_else(cpu::cores);
-            cpu::pow(
-                progress.as_ref(),
-                &template,
-                signer.as_ref(),
-                threads,
-                &found,
-            )
-        }
-        Device::Gpu => gpu_pow(
-            &progress,
-            &template,
-            signer.as_ref(),
-            args.common.gpu,
-            &found,
-        ),
-    };
+    let threads = args.common.threads.unwrap_or_else(cpu::cores);
+    let backend = choose(&args.common)?;
+    eprintln!("using {}", backend.label());
+    let result = ngrind::backend::pow(
+        &backend,
+        progress.as_ref(),
+        &template,
+        signer.as_ref(),
+        threads,
+        &found,
+    );
     progress.stop.store(true, Ordering::SeqCst);
     let _ = reporter.join();
     finish(
@@ -363,40 +378,10 @@ fn pow(args: PowArgs) -> Result<()> {
     result.map_err(anyhow::Error::msg)
 }
 
-#[cfg(feature = "cuda")]
-fn gpu_pow(
-    progress: &Arc<Progress>,
-    template: &Template,
-    signer: Option<&Keypair>,
-    device: u32,
-    found: &(dyn Fn(PowFound) + Sync),
-) -> Result<(), String> {
-    ngrind::cuda::pow(progress.as_ref(), template, signer, device, found)
-}
-
-#[cfg(not(feature = "cuda"))]
-fn gpu_pow(
-    _: &Arc<Progress>,
-    _: &Template,
-    _: Option<&Keypair>,
-    _: u32,
-    _: &(dyn Fn(PowFound) + Sync),
-) -> Result<(), String> {
-    Err("this build has no GPU support, use --device cpu".into())
-}
-
 fn devices() {
-    #[cfg(feature = "cuda")]
-    {
-        let gpus = ngrind::cuda::devices();
-        if gpus.is_empty() {
-            println!("no CUDA device found");
-        }
-        for (i, name) in gpus.iter().enumerate() {
-            println!("gpu {i}  {name}");
-        }
+    for b in ngrind::backend::available() {
+        println!("{:<5} {}  {}", b.kind.label(), b.index, b.name);
     }
-    println!("cpu   {} threads", cpu::cores());
 }
 
 fn main() -> Result<()> {

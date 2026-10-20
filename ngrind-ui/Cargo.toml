@@ -11,14 +11,15 @@ name = "ngrind-ui"
 path = "src/main.rs"
 
 [features]
-default = ["cuda"]
+default = ["cuda", "wgpu"]
 cuda = ["ngrind/cuda"]
+wgpu = ["ngrind/wgpu"]
 
 [dependencies]
 ngrind = { path = "../ngrind", default-features = false }
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }
 egui = "0.35"
 egui_bench = "0.5.4"
-secp256k1 = "0.31"
+secp256k1 = "0.33"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

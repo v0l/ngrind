@@ -1,5 +1,6 @@
-use super::sha::{self, K};
 use super::{Device, Error};
+use crate::powlayout::{LOW_DIGITS, NONCES_PER_UNIT, Plan, PowHit};
+use crate::sha;
 use cudarc::driver::{
     CudaEvent, CudaFunction, CudaSlice, DeviceRepr, LaunchConfig, PinnedHostSlice, PushKernelArg,
 };
@@ -7,11 +8,6 @@ use sha2::{Digest, Sha256};
 
 static FATBIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pow.fatbin"));
 
-const NONCES_PER_UNIT: u64 = 1000;
-const UNITS_PER_HIGH: u64 = 10;
-const LOW_DIGITS: usize = 4;
-const MIN_NONCE_DIGITS: usize = 12;
-const MAX_NONCE_DIGITS: usize = 20;
 const SLOTS: usize = 2;
 const PARAM_TRAIL: usize = 6;
 const OUT_WORDS: usize = 6;
@@ -49,24 +45,7 @@ struct Params {
 
 unsafe impl DeviceRepr for Params {}
 
-#[derive(Debug, Clone)]
-pub struct PowHit {
-    pub nonce: u64,
-    pub event_id: [u8; 32],
-    pub difficulty: u32,
-}
-
-struct Layout {
-    digits: usize,
-    b0: usize,
-    wv: usize,
-    n_trail: usize,
-    cost: usize,
-    high_base: u64,
-    units: u64,
-    first_unit: u64,
-    tpl: [u32; 32],
-    trail_kw: Vec<u32>,
+struct DeviceLayout {
     device_trail: Option<CudaSlice<u32>>,
     launch_units: u32,
 }
@@ -79,11 +58,9 @@ struct Slot {
 }
 
 struct State {
-    prefix: Vec<u8>,
-    suffix: Vec<u8>,
     target: u32,
-    midstate: [u32; 8],
-    layouts: Vec<Layout>,
+    plan: Plan,
+    device_layouts: Vec<DeviceLayout>,
     cursor: u64,
     limit: u64,
     slots: Vec<Slot>,
@@ -96,10 +73,6 @@ pub struct PowMiner {
     funcs: Vec<Option<CudaFunction>>,
     state: Option<State>,
     attempts: u64,
-}
-
-fn pow10(n: usize) -> u64 {
-    10u64.pow(n as u32)
 }
 
 impl Default for PowMiner {
@@ -166,30 +139,26 @@ impl PowMiner {
     }
 
     fn setup(&mut self, prefix: &[u8], suffix: &[u8], target: u32) -> Result<State, Error> {
-        let (midstate, consumed) = sha::midstate(prefix);
-        let rem = prefix.len() - consumed;
-        let mut layouts: Vec<Layout> = (MIN_NONCE_DIGITS..=MAX_NONCE_DIGITS)
-            .filter(|digits| (rem + digits - LOW_DIGITS).is_multiple_of(4))
-            .map(|digits| build_layout(prefix, suffix, consumed, rem, digits))
-            .collect();
-        layouts.sort_by(|a, b| a.cost.cmp(&b.cost).then(b.digits.cmp(&a.digits)));
-
+        let plan = Plan::new(prefix, suffix);
         let (sm_count, stream) = {
             let dev = self.dev.as_ref().expect("opened by init");
             (dev.sm_count, dev.stream.clone())
         };
-        let mut total = 0u64;
-        for l in &mut layouts {
-            l.first_unit = total;
-            total += l.units;
-            if l.n_trail > 0 {
-                l.device_trail = Some(stream.clone_htod(&l.trail_kw)?);
-            }
+        let mut device_layouts = Vec::with_capacity(plan.layouts.len());
+        for l in &plan.layouts {
+            let device_trail = if l.n_trail > 0 {
+                Some(stream.clone_htod(&l.trail_kw)?)
+            } else {
+                None
+            };
             let func = self.function(l.b0, l.wv)?;
             let blocks = func
                 .occupancy_max_active_blocks_per_multiprocessor(THREADS, 0, None)?
                 .max(1);
-            l.launch_units = sm_count * blocks * THREADS * WAVES;
+            device_layouts.push(DeviceLayout {
+                device_trail,
+                launch_units: sm_count * blocks * THREADS * WAVES,
+            });
         }
 
         let ctx = stream.context().clone();
@@ -205,14 +174,13 @@ impl PowMiner {
                 units: 0,
             });
         }
+        let limit = plan.total_units;
         Ok(State {
-            prefix: prefix.to_vec(),
-            suffix: suffix.to_vec(),
             target,
-            midstate,
-            layouts,
+            plan,
+            device_layouts,
             cursor: 0,
-            limit: total,
+            limit,
             slots,
             head: 0,
             in_flight: 0,
@@ -223,24 +191,25 @@ impl PowMiner {
         let (b0, wv, params, count) = {
             let st = self.state.as_mut().expect("checked by mine");
             let start = st.cursor;
-            let l = st
-                .layouts
-                .iter()
-                .find(|l| start >= l.first_unit && start < l.first_unit + l.units)
+            let index_of = st
+                .plan
+                .find(start)
                 .ok_or_else(|| Error::Gpu("unit outside every nonce layout".into()))?;
+            let l = &st.plan.layouts[index_of];
+            let dl = &st.device_layouts[index_of];
             let end = (l.first_unit + l.units).min(st.limit);
-            let count = (end - start).min(l.launch_units as u64) as u32;
+            let count = (end - start).min(dl.launch_units as u64) as u32;
             let dev = self.dev.as_ref().expect("opened by init");
             let mut kw = [0u32; PARAM_TRAIL * 64];
             let n = l.trail_kw.len().min(PARAM_TRAIL * 64);
             kw[..n].copy_from_slice(&l.trail_kw[..n]);
-            let trail_ptr = match &l.device_trail {
+            let trail_ptr = match &dl.device_trail {
                 Some(buf) => device_pointer(buf, dev),
                 None => 0,
             };
             let out_ptr = device_pointer(&st.slots[index].device, dev);
             let params = Params {
-                midstate: st.midstate,
+                midstate: st.plan.midstate,
                 tpl: l.tpl,
                 kw,
                 trail_kw: trail_ptr,
@@ -309,9 +278,9 @@ impl PowMiner {
         }
         let nonce = out[0];
         let mut digest = Sha256::new();
-        digest.update(&st.prefix);
+        digest.update(&st.plan.prefix);
         digest.update(nonce.to_string());
-        digest.update(&st.suffix);
+        digest.update(&st.plan.suffix);
         let hash: [u8; 32] = digest.finalize().into();
         for i in 0usize..8 {
             let word = if i.is_multiple_of(2) {
@@ -343,57 +312,4 @@ fn device_pointer<T>(buf: &CudaSlice<T>, dev: &Device) -> u64 {
     use cudarc::driver::DevicePtr;
     let (ptr, _guard) = buf.device_ptr(&dev.stream);
     ptr
-}
-
-fn build_layout(
-    prefix: &[u8],
-    suffix: &[u8],
-    consumed: usize,
-    rem: usize,
-    digits: usize,
-) -> Layout {
-    let high = digits - LOW_DIGITS;
-    let low_pos = rem + high;
-    let b0 = low_pos / 64;
-    let wv = (low_pos % 64) / 4;
-    let tail_len = rem + digits + suffix.len();
-    let blocks = (tail_len + 9).div_ceil(64);
-    let n_trail = blocks - b0 - 1;
-    let cost = (64 - wv) + 24 + 64 * n_trail;
-    let high_base = pow10(high - 1);
-    let high_max = (pow10(high) - 1).min((u64::MAX - 9999) / 10000);
-    let units = (high_max - high_base + 1) * UNITS_PER_HIGH;
-
-    let mut tail = vec![0u8; blocks * 64];
-    tail[..rem].copy_from_slice(&prefix[consumed..]);
-    tail[rem + digits..rem + digits + suffix.len()].copy_from_slice(suffix);
-    tail[tail_len] = 0x80;
-    let bits = ((prefix.len() + digits + suffix.len()) as u64) * 8;
-    for i in 0..8 {
-        tail[blocks * 64 - 1 - i] = (bits >> (8 * i)) as u8;
-    }
-
-    let mut tpl = [0u32; 32];
-    for (i, word) in tpl.iter_mut().enumerate().take((b0 + 1) * 16) {
-        *word = u32::from_be_bytes(tail[i * 4..i * 4 + 4].try_into().expect("four bytes"));
-    }
-    let mut trail_kw = Vec::with_capacity(n_trail * 64);
-    for b in 0..n_trail {
-        let w = sha::schedule(&tail[(b0 + 1 + b) * 64..(b0 + 2 + b) * 64]);
-        trail_kw.extend((0..64).map(|i| w[i].wrapping_add(K[i])));
-    }
-    Layout {
-        digits,
-        b0,
-        wv,
-        n_trail,
-        cost,
-        high_base,
-        units,
-        first_unit: 0,
-        tpl,
-        trail_kw,
-        device_trail: None,
-        launch_units: 0,
-    }
 }

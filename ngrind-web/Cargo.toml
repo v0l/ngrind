@@ -1,0 +1,20 @@
+[package]
+name = "ngrind-web"
+description = "ngrind in the browser, on WebGPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ngrind = { path = "../ngrind", default-features = false, features = ["wgpu"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+console_error_panic_hook = "0.1"
+secp256k1 = "0.33"
