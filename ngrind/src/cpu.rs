@@ -217,7 +217,10 @@ pub fn pow_search(
                         if batch == POW_BATCH {
                             link.add(batch);
                             batch = 0;
-                            if done.load(Ordering::Relaxed) || link.stopped() {
+                            if done.load(Ordering::Relaxed)
+                                || link.stopped()
+                                || Instant::now() >= deadline
+                            {
                                 return;
                             }
                         }
