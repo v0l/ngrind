@@ -1,0 +1,24 @@
+[package]
+name = "ngrind-ui"
+description = "Bench-suite style window for mining vanity npubs and NIP-13 proof of work events on the GPU or CPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ngrind-ui"
+path = "src/main.rs"
+
+[features]
+default = ["cuda"]
+cuda = ["ngrind/cuda"]
+
+[dependencies]
+ngrind = { path = "../ngrind", default-features = false }
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence", "wayland", "x11"] }
+egui = "0.35"
+egui_bench = "0.5.4"
+secp256k1 = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,23 @@
+[package]
+name = "ngrind-cli"
+description = "Command line vanity npub and NIP-13 proof of work miner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ngrind"
+path = "src/main.rs"
+
+[features]
+default = ["cuda"]
+cuda = ["ngrind/cuda"]
+
+[dependencies]
+ngrind = { path = "../ngrind", default-features = false }
+clap = { version = "4", features = ["derive"] }
+ctrlc = { version = "3", features = ["termination"] }
+anyhow = "1"
+secp256k1 = "0.31"
+serde_json = "1"
