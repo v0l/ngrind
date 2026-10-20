@@ -9,6 +9,9 @@ pub struct GpuInfo {
 
 impl GpuInfo {
     pub fn label(&self) -> String {
+        if self.name.trim().is_empty() {
+            return format!("GPU ({})", self.backend);
+        }
         if self.software {
             format!("{} ({}, software)", self.name, self.backend)
         } else {
