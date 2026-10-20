@@ -335,7 +335,9 @@ mod tests {
 
     fn run(adapter: usize, content: &str, fast: bool, difficulty: u32) {
         let infos = pollster::block_on(super::super::list());
-        let gpu = Arc::new(pollster::block_on(Gpu::open(adapter)).expect("adapter opens"));
+        let Some(gpu) = crate::wgpu::test_gpu(adapter) else {
+            return;
+        };
         eprintln!("adapter {adapter}: {} of {}", gpu.info.label(), infos.len());
         let template = Template {
             pubkey: "ef".repeat(32),

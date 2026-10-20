@@ -227,9 +227,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>) {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use crate::wgpu::Gpu;
     use num_bigint::BigUint;
-    use std::sync::Arc;
 
     fn prime() -> BigUint {
         (BigUint::from(1u8) << 256u32) - BigUint::from(0x1_0000_03D1u64)
@@ -281,7 +279,9 @@ mod tests {
 
     #[test]
     fn field_arithmetic_matches_big_integers() {
-        let gpu = Arc::new(pollster::block_on(Gpu::open(0)).expect("adapter"));
+        let Some(gpu) = crate::wgpu::test_gpu(0) else {
+            return;
+        };
         let p = prime();
         let values = edge_cases();
         let pairs: Vec<(BigUint, BigUint)> = values

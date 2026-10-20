@@ -1,4 +1,7 @@
-#![cfg_attr(test, allow(clippy::await_holding_lock, clippy::arc_with_non_send_sync))]
+#![cfg_attr(
+    test,
+    allow(clippy::await_holding_lock, clippy::arc_with_non_send_sync)
+)]
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 #![allow(clippy::chunks_exact_to_as_chunks)]
 pub mod backend;

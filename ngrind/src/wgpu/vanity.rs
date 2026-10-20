@@ -434,8 +434,13 @@ mod tests {
     use super::*;
     use crate::pattern::Alphabet;
 
-    fn collect(adapter: usize, pattern: Pattern, want: usize, config: VanityConfig) -> Vec<Found> {
-        let gpu = Arc::new(pollster::block_on(Gpu::open(adapter)).expect("adapter opens"));
+    fn collect(
+        adapter: usize,
+        pattern: Pattern,
+        want: usize,
+        config: VanityConfig,
+    ) -> Option<Vec<Found>> {
+        let gpu = crate::wgpu::test_gpu(adapter)?;
         let mut miner = WgpuVanity::new(gpu, &pattern, config).unwrap();
         let started = Instant::now();
         let mut found = Vec::new();
@@ -452,11 +457,11 @@ mod tests {
             0,
             "the shader reported keys that do not check out"
         );
-        found
+        Some(found)
     }
 
     fn check(pattern: Pattern, want: usize, accept: impl Fn(&str, &str) -> bool) {
-        for (secret, public) in collect(
+        let Some(found) = collect(
             0,
             pattern,
             want,
@@ -466,7 +471,10 @@ mod tests {
                 fixed_iters: None,
                 max_hits: 8,
             },
-        ) {
+        ) else {
+            return;
+        };
+        for (secret, public) in found {
             assert_eq!(keys::public_of(&secret).unwrap(), public);
             let (npub, hex) = (keys::npub(&public), keys::hex(&public));
             assert!(accept(&npub, &hex), "{npub} {hex}");
@@ -520,7 +528,9 @@ mod tests {
 
     fn replay(threads: u32, half: usize, dispatches: i128) {
         let pattern = Pattern::parse(Alphabet::Hex, "a", "").unwrap();
-        let gpu = Arc::new(pollster::block_on(Gpu::open(0)).expect("adapter opens"));
+        let Some(gpu) = crate::wgpu::test_gpu(0) else {
+            return;
+        };
         let mut miner = WgpuVanity::new(
             gpu,
             &pattern,
@@ -567,7 +577,9 @@ mod tests {
     #[test]
     fn every_key_is_checked_exactly_once() {
         let pattern = Pattern::parse(Alphabet::Hex, "abcde", "").unwrap();
-        let gpu = Arc::new(pollster::block_on(Gpu::open(0)).expect("adapter opens"));
+        let Some(gpu) = crate::wgpu::test_gpu(0) else {
+            return;
+        };
         let mut miner = WgpuVanity::new(
             gpu,
             &pattern,
@@ -605,7 +617,8 @@ mod tests {
                     fixed_iters: None,
                     max_hits: 8,
                 },
-            );
+            )
+            .expect("the adapter was just listed");
             for (secret, public) in found {
                 assert_eq!(keys::public_of(&secret).unwrap(), public);
             }

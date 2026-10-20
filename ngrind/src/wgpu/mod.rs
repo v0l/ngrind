@@ -37,3 +37,15 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn test_gpu(index: usize) -> Option<std::sync::Arc<Gpu>> {
+    let found = pollster::block_on(list());
+    if found.is_empty() {
+        eprintln!("skipped: no wgpu adapter on this machine");
+        return None;
+    }
+    Some(std::sync::Arc::new(
+        pollster::block_on(Gpu::open(index)).expect("an adapter that is listed must open"),
+    ))
+}
