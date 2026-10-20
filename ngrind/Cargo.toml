@@ -25,6 +25,9 @@ web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wgpu = { version = "29", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal", "dx12"], optional = true }
+
+[target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
+wgpu = { version = "29", default-features = false, features = ["static-dxc"], optional = true }
 pollster = "0.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
