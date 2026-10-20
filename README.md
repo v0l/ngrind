@@ -21,10 +21,10 @@ On an RTX PRO 6000 (a measured example, shared with other work):
 
 | | cuda | wgpu | cpu, 48 threads |
 |---|---|---|---|
-| vanity keys | 237 Mkeys/s | 1.9 to 2.6 Gkeys/s | 9 Mkeys/s |
+| vanity keys | 12 Gkeys/s | 1.9 to 2.6 Gkeys/s | 9 Mkeys/s |
 | proof of work | 10.9 GH/s | 5.1 to 7.5 GH/s | 0.65 GH/s |
 
-The wgpu vanity miner is faster than cuda because it steps along the curve with one shared inversion per 64 keys, where the CUDA kernel multiplies a full scalar for every key. Porting that to the CUDA kernel would close the gap.
+Both GPU vanity miners step along the curve and share one inversion across each batch of keys. `--checkpoint` still uses the older scalar-multiply kernel (about 240 Mkeys/s), because its saved offsets follow that kernel's search order.
 
 ## Build
 
@@ -33,9 +33,10 @@ cargo build --release
 cargo build --release --no-default-features --features wgpu
 cargo build --release --no-default-features
 ./ngrind-web/build.sh
+./ngrind-web/deploy.sh
 ```
 
-The first needs the CUDA toolkit (`nvcc`) and builds kernels for the architectures `nvidia-smi` reports. The second needs no CUDA. The third is cpu only. The last builds the web page into `target/web`; it needs `clang` for the secp256k1 C code and the `wasm32-unknown-unknown` target.
+The first needs the CUDA toolkit (`nvcc`) and builds kernels for the architectures `nvidia-smi` reports. The second needs no CUDA. The third is cpu only. `ngrind-web/build.sh` builds the full egui app for the browser into `target/web`, with the wgpu and cpu backends. Like gcad it uses worker threads, so it needs nightly with `rust-src`, `clang` for the secp256k1 C code, and a page served with COOP/COEP headers (`ngrind-web/_headers`, or `python3 ngrind-web/serve.py`). `deploy.sh` publishes it to https://ngrind.pages.dev.
 
 Build settings, all optional environment variables: `NGRIND_CUDA_ARCHS` (for example `86,89,120`), `NGRIND_BLOCKS`, `NGRIND_THREADS`, `NGRIND_KEYS_PER_THREAD`, `NGRIND_POW_THREADS`, `NGRIND_POW_WAVES`, `CUDA_PATH`.
 

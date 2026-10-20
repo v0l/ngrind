@@ -79,7 +79,28 @@ pub fn vanity(
     device: u32,
     found: OnFound,
 ) -> Result<(), String> {
-    search(ctl, pattern, device, None, found)
+    ctl.phase(Phase::Setup);
+    let mut miner = super::StepVanity::new(pattern, device, super::StepConfig::default())
+        .map_err(|e| e.to_string())?;
+    ctl.log(&format!("starting on {}", miner.device_name()));
+    ctl.phase(Phase::Search);
+    let (mut counted, mut rejected) = (0u64, 0u64);
+    while !ctl.stopped() {
+        let hits = miner.step().map_err(|e| e.to_string())?;
+        let now = miner.keys_generated();
+        ctl.add(now - counted);
+        counted = now;
+        for (secret, public) in hits {
+            found(secret, public);
+        }
+        if miner.rejected() > rejected {
+            rejected = miner.rejected();
+            ctl.log(&format!(
+                "discarded a match that failed the check ({rejected})"
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn vanity_sequential(

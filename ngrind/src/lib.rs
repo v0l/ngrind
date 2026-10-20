@@ -15,6 +15,7 @@ pub mod keys;
 pub mod pattern;
 pub mod powlayout;
 pub mod sha;
+pub mod stepping;
 #[cfg(feature = "wgpu")]
 pub mod wgpu;
 

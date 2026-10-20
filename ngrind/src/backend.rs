@@ -77,24 +77,23 @@ pub fn available() -> Vec<Backend> {
 
 #[cfg(target_arch = "wasm32")]
 pub async fn available_web() -> Vec<Backend> {
+    let mut all = Vec::new();
     #[cfg(feature = "wgpu")]
-    {
-        crate::wgpu::list()
-            .await
-            .into_iter()
-            .enumerate()
-            .map(|(i, info)| Backend {
-                kind: Kind::Wgpu,
-                index: i,
-                name: info.label(),
-                software: info.software,
-            })
-            .collect()
+    for (i, info) in crate::wgpu::list().await.into_iter().enumerate() {
+        all.push(Backend {
+            kind: Kind::Wgpu,
+            index: i,
+            name: info.label(),
+            software: info.software,
+        });
     }
-    #[cfg(not(feature = "wgpu"))]
-    {
-        Vec::new()
-    }
+    all.push(Backend {
+        kind: Kind::Cpu,
+        index: 0,
+        name: format!("{} threads", crate::cpu::cores()),
+        software: false,
+    });
+    all
 }
 
 pub fn best(all: &[Backend]) -> Backend {

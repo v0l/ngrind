@@ -2,7 +2,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const KERNELS: [&str; 2] = ["pow", "vanity"];
+const KERNELS: [&str; 3] = ["pow", "vanity", "step"];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");

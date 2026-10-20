@@ -15,6 +15,9 @@ ngrind = { path = "../ngrind", default-features = false, features = ["wgpu"] }
 ngrind-ui = { path = "../ngrind-ui", default-features = false, features = ["wgpu"] }
 eframe = { version = "0.35", default-features = false, features = ["default_fonts", "glow", "persistence"] }
 wasm-bindgen = "0.2"
+wasm-bindgen-rayon = { version = "1", features = ["no-bundler"] }
+rayon = "1"
+parking_lot_core = { version = "0.9", features = ["nightly"] }
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["console", "Document", "Element", "HtmlCanvasElement", "Window"] }
 console_error_panic_hook = "0.1"

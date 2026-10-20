@@ -1,12 +1,14 @@
 mod device;
 mod pow;
 mod run;
+mod step;
 mod vanity;
 
 pub use crate::powlayout::PowHit;
 pub use device::{Device, device_count, device_name, devices};
 pub use pow::PowMiner;
 pub use run::{pow, vanity, vanity_sequential};
+pub use step::{StepConfig, StepVanity};
 pub use vanity::{Bech32Check, Config, SearchMode, VanityHit, VanityMiner, VanityMode};
 
 use std::fmt;

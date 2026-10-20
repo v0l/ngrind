@@ -2,15 +2,16 @@ use super::vanity_shader::{self as sh, RECORD, U_WORDS, WORKGROUP, out_words};
 use super::{Error, Gpu};
 use crate::keys;
 use crate::pattern::Pattern;
+use crate::stepping::{Decoded, Decoder, start_states, table};
+#[cfg(test)]
+use crate::stepping::{offset_secret, thread_secret};
 use futures_channel::oneshot;
-use secp256k1::{PublicKey, Scalar, SecretKey};
 use std::sync::Arc;
 use web_time::{Duration, Instant};
 
-pub type Found = ([u8; 32], [u8; 32]);
+pub use crate::stepping::Found;
 
 const SLOTS: usize = 2;
-const STRIDE_SHIFT: usize = 48;
 const TARGET_DISPATCH: Duration = Duration::from_millis(80);
 const MAX_ITERS: u32 = 64;
 
@@ -47,10 +48,9 @@ pub struct WgpuVanity {
     pipeline: wgpu::ComputePipeline,
     uniforms: wgpu::Buffer,
     slots: Vec<Slot>,
-    pattern: Pattern,
+    decoder: Decoder,
     symbols: Vec<(u32, u32)>,
     config: VanityConfig,
-    origin: SecretKey,
     iters: u32,
     advanced: u64,
     head: usize,
@@ -59,80 +59,6 @@ pub struct WgpuVanity {
     keys_generated: u64,
     matches_seen: u64,
     rejected: u64,
-}
-
-fn limbs(bytes: &[u8]) -> [u32; 8] {
-    let mut out = [0u32; 8];
-    for (k, limb) in out.iter_mut().enumerate() {
-        let at = (7 - k) * 4;
-        *limb = u32::from_be_bytes(bytes[at..at + 4].try_into().expect("four bytes"));
-    }
-    out
-}
-
-fn unlimbs(words: &[u32]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    for k in 0..8 {
-        out[(7 - k) * 4..(7 - k) * 4 + 4].copy_from_slice(&words[k].to_be_bytes());
-    }
-    out
-}
-
-fn scalar(value: u128) -> Scalar {
-    let mut bytes = [0u8; 32];
-    bytes[16..].copy_from_slice(&value.to_be_bytes());
-    Scalar::from_be_bytes(bytes).expect("far below the curve order")
-}
-
-fn secret(value: u128) -> SecretKey {
-    let mut bytes = [0u8; 32];
-    bytes[16..].copy_from_slice(&value.to_be_bytes());
-    SecretKey::from_secret_bytes(bytes).expect("a small non-zero scalar")
-}
-
-fn offset_secret(base: &SecretKey, delta: i128) -> Result<SecretKey, String> {
-    let magnitude = scalar(delta.unsigned_abs());
-    if delta >= 0 {
-        base.add_tweak(&magnitude).map_err(|e| e.to_string())
-    } else {
-        base.negate()
-            .add_tweak(&magnitude)
-            .map(|k| k.negate())
-            .map_err(|e| e.to_string())
-    }
-}
-
-fn thread_secret(origin: &SecretKey, thread: u64) -> Result<SecretKey, String> {
-    offset_secret(origin, (thread as i128) << STRIDE_SHIFT)
-}
-
-fn table(half: usize) -> Vec<u32> {
-    let mut words = Vec::with_capacity((half + 1) * 16);
-    let mut push = |k: u128| {
-        let point = PublicKey::from_secret_key(&secret(k)).serialize_uncompressed();
-        words.extend_from_slice(&limbs(&point[1..33]));
-        words.extend_from_slice(&limbs(&point[33..65]));
-    };
-    for i in 0..half {
-        push(i as u128 + 1);
-    }
-    push(2 * half as u128 + 1);
-    words
-}
-
-fn start_states(origin: &SecretKey, threads: u32) -> Vec<u32> {
-    let mut words = Vec::with_capacity(threads as usize * 16);
-    let step = PublicKey::from_secret_key(&secret(1u128 << STRIDE_SHIFT));
-    let mut point = PublicKey::from_secret_key(origin);
-    for _ in 0..threads {
-        let bytes = point.serialize_uncompressed();
-        words.extend_from_slice(&limbs(&bytes[1..33]));
-        words.extend_from_slice(&limbs(&bytes[33..65]));
-        point = point
-            .combine(&step)
-            .expect("distinct multiples never cancel");
-    }
-    words
 }
 
 fn bytes_of(words: &[u32]) -> Vec<u8> {
@@ -273,10 +199,13 @@ impl WgpuVanity {
             pipeline,
             uniforms,
             slots,
-            pattern: pattern.clone(),
+            decoder: Decoder {
+                origin,
+                half: config.half,
+                pattern: pattern.clone(),
+            },
             symbols,
             config,
-            origin,
             iters: config_iters,
             advanced: 0,
             head: 0,
@@ -305,7 +234,7 @@ impl WgpuVanity {
     }
 
     fn per_iteration(&self) -> u64 {
-        2 * self.config.half as u64 + 1
+        self.decoder.per_iteration()
     }
 
     fn enqueue(&mut self, index: usize) {
@@ -313,7 +242,7 @@ impl WgpuVanity {
         let mut u = vec![0u32; U_WORDS];
         u[sh::U_THREADS] = self.config.threads;
         u[sh::U_ITERS] = self.iters;
-        u[sh::U_BITS] = self.pattern.symbol_bits();
+        u[sh::U_BITS] = self.decoder.pattern.symbol_bits();
         u[sh::U_COUNT] = self.symbols.len() as u32;
         for (k, (at, value)) in self.symbols.iter().enumerate() {
             u[sh::U_SYMBOLS + 2 * k] = *at;
@@ -401,23 +330,14 @@ impl WgpuVanity {
         let mut hits = Vec::new();
         for k in 0..found.min(self.config.max_hits) {
             let record = &words[1 + k * RECORD..1 + (k + 1) * RECORD];
-            let (thread, code) = (record[0] as u64, record[1] as i128);
-            let x = unlimbs(&record[2..10]);
-            let delta =
-                advanced as i128 * self.per_iteration() as i128 + code - self.config.half as i128;
-            let key = thread_secret(&self.origin, thread).and_then(|s| offset_secret(&s, delta));
-            match key {
-                Ok(key) => {
-                    let private = key.to_secret_bytes();
-                    let genuine =
-                        keys::public_of(&private).is_ok_and(|p| p == x) && self.pattern.matches(&x);
-                    if genuine {
-                        hits.push((private, x));
-                    } else {
-                        self.rejected += 1;
-                    }
-                }
-                Err(_) => self.rejected += 1,
+            match self.decoder.decode(
+                advanced,
+                record[0] as u64,
+                record[1],
+                crate::stepping::unlimbs(&record[2..10]),
+            ) {
+                Decoded::Hit(private, x) => hits.push((private, x)),
+                Decoded::Rejected => self.rejected += 1,
             }
         }
         Ok(hits)
@@ -549,7 +469,7 @@ mod tests {
         let mut cpu_matches = 0u64;
         for d in 0..dispatches {
             for t in 0..threads as u64 {
-                let base = thread_secret(&miner.origin, t).unwrap();
+                let base = thread_secret(&miner.decoder.origin, t).unwrap();
                 for k in -(half as i128)..=(half as i128) {
                     let key = offset_secret(&base, d * per + k).unwrap();
                     if pattern.matches(&keys::public_of(&key.to_secret_bytes()).unwrap()) {

@@ -9,7 +9,7 @@ use sha2::digest::generic_array::GenericArray;
 use sha2::digest::typenum::U64;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Instant;
+use web_time::Instant;
 
 const VANITY_BATCH: u64 = 2048;
 const POW_BATCH: u64 = 1 << 14;
@@ -25,10 +25,40 @@ type Block = GenericArray<u8, U64>;
 
 pub use crate::control::{Control, OnFound, Phase};
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn cores() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn cores() -> usize {
+    web_sys::window()
+        .map(|w| w.navigator().hardware_concurrency() as usize)
+        .unwrap_or(1)
+        .max(1)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_worker(work: impl FnOnce() + Send + 'static) {
+    rayon::spawn(work);
+}
+
+fn parallel(threads: usize, work: &(dyn Fn() + Sync)) {
+    let threads = threads.max(1);
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(work);
+        }
+    });
+    #[cfg(target_arch = "wasm32")]
+    rayon::scope(|scope| {
+        for _ in 0..threads.min(rayon::current_num_threads()) {
+            scope.spawn(|_| work());
+        }
+    });
 }
 
 fn one() -> SecretKey {
@@ -46,11 +76,7 @@ fn offset(i: u64) -> Option<Scalar> {
 pub fn vanity(ctl: &dyn Control, pattern: &Pattern, threads: usize, found: OnFound) {
     ctl.phase(Phase::Search);
     ctl.log(&format!("searching on {} threads", threads.max(1)));
-    std::thread::scope(|scope| {
-        for _ in 0..threads.max(1) {
-            scope.spawn(|| vanity_thread(ctl, pattern, found));
-        }
-    });
+    parallel(threads, &|| vanity_thread(ctl, pattern, found));
 }
 
 fn vanity_thread(link: &dyn Control, pattern: &Pattern, found: OnFound) {
@@ -184,49 +210,42 @@ pub fn pow_search(
     let done = AtomicBool::new(false);
     let found: Mutex<Option<u64>> = Mutex::new(None);
 
-    std::thread::scope(|scope| {
-        for _ in 0..threads.max(1) {
-            scope.spawn(|| {
-                let mut state;
-                while !done.load(Ordering::Relaxed) && !link.stopped() && Instant::now() < deadline
-                {
-                    let start = FIRST_NONCE.saturating_add(
-                        chunk
-                            .fetch_add(1, Ordering::Relaxed)
-                            .saturating_mul(POW_CHUNK),
-                    );
-                    if start == u64::MAX {
+    parallel(threads, &|| {
+        let mut state;
+        while !done.load(Ordering::Relaxed) && !link.stopped() && Instant::now() < deadline {
+            let start = FIRST_NONCE.saturating_add(
+                chunk
+                    .fetch_add(1, Ordering::Relaxed)
+                    .saturating_mul(POW_CHUNK),
+            );
+            if start == u64::MAX {
+                return;
+            }
+            let end = start.saturating_add(POW_CHUNK).min(pow10_above(start));
+            let mut tail = Tail::new(rem, start, suffix.as_bytes(), bytes.len());
+            let mut batch = 0u64;
+            for nonce in start..end {
+                state = midstate;
+                compress256(&mut state, &tail.blocks);
+                if clears(&state, target) {
+                    done.store(true, Ordering::Relaxed);
+                    let mut slot = found.lock().expect("no panic holds this lock");
+                    slot.get_or_insert(nonce);
+                    link.add(batch + 1);
+                    return;
+                }
+                tail.step();
+                batch += 1;
+                if batch == POW_BATCH {
+                    link.add(batch);
+                    batch = 0;
+                    if done.load(Ordering::Relaxed) || link.stopped() || Instant::now() >= deadline
+                    {
                         return;
                     }
-                    let end = start.saturating_add(POW_CHUNK).min(pow10_above(start));
-                    let mut tail = Tail::new(rem, start, suffix.as_bytes(), bytes.len());
-                    let mut batch = 0u64;
-                    for nonce in start..end {
-                        state = midstate;
-                        compress256(&mut state, &tail.blocks);
-                        if clears(&state, target) {
-                            done.store(true, Ordering::Relaxed);
-                            let mut slot = found.lock().expect("no panic holds this lock");
-                            slot.get_or_insert(nonce);
-                            link.add(batch + 1);
-                            return;
-                        }
-                        tail.step();
-                        batch += 1;
-                        if batch == POW_BATCH {
-                            link.add(batch);
-                            batch = 0;
-                            if done.load(Ordering::Relaxed)
-                                || link.stopped()
-                                || Instant::now() >= deadline
-                            {
-                                return;
-                            }
-                        }
-                    }
-                    link.add(batch);
                 }
-            });
+            }
+            link.add(batch);
         }
     });
     *found.lock().expect("no panic holds this lock")

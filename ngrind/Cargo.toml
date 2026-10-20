@@ -31,7 +31,8 @@ pollster = "0.4"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
 wgpu = { version = "29", default-features = false, features = ["std", "wgsl", "webgpu"], optional = true }
-web-sys = { version = "0.3", features = ["console"] }
+web-sys = { version = "0.3", features = ["console", "Window", "Navigator"] }
+rayon = "1"
 
 [dev-dependencies]
 naga = { version = "29", features = ["wgsl-in"] }
@@ -44,3 +45,7 @@ required-features = ["wgpu"]
 [[example]]
 name = "wgpu_vanity_bench"
 required-features = ["wgpu"]
+
+[[example]]
+name = "cuda_vanity_bench"
+required-features = ["cuda"]

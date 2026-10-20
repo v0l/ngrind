@@ -130,7 +130,9 @@ impl Link {
 
     fn send(&self, msg: Msg) {
         let _ = self.tx.send(msg);
-        self.ctx.request_repaint();
+        if !cfg!(target_arch = "wasm32") {
+            self.ctx.request_repaint();
+        }
     }
 
     pub fn phase(&self, phase: Phase) {
@@ -223,6 +225,17 @@ impl Handle {
             done,
             thread: Some(thread),
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn spawn_worker(work: impl FnOnce() + Send + 'static) -> Handle {
+        let done = Arc::new(AtomicBool::new(false));
+        let finish = Finish(done.clone());
+        ngrind::cpu::spawn_worker(move || {
+            let _finish = finish;
+            work();
+        });
+        Handle { done }
     }
 
     #[cfg(target_arch = "wasm32")]

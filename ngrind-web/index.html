@@ -16,9 +16,16 @@
 <div id="loading">loading</div>
 <canvas id="ngrind"></canvas>
 <script type="module">
-  import init, { start } from "./ngrind_web.js";
-  await init();
-  start();
+  const loading = document.getElementById("loading");
+  if (!self.crossOriginIsolated) {
+    loading.textContent = "ngrind needs a cross-origin isolated page (COOP and COEP headers) to run its worker threads";
+  } else {
+    const { default: init, initThreadPool, start } = await import("./ngrind_web.js");
+    await init();
+    const asked = Number(new URLSearchParams(location.search).get("threads"));
+    await initThreadPool(asked > 0 ? asked : navigator.hardwareConcurrency);
+    start();
+  }
 </script>
 </body>
 </html>
