@@ -42,7 +42,7 @@ jobs:
         if: contains(matrix.features, 'cuda')
         uses: Jimver/cuda-toolkit@v0.2.24
         with:
-          cuda: "12.8.1"
+          cuda: "13.2.2"
           method: network
           sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "cudart", "curand", "curand_dev", "visual_studio_integration"]' || '["nvcc", "cudart"]' }}
           non-cuda-sub-packages: ${{ runner.os == 'Windows' && '[]' || '["libcurand-dev"]' }}
