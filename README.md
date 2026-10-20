@@ -24,10 +24,17 @@ Measured on one machine: an RTX PRO 6000 Blackwell Max-Q (shared with other work
 | | vanity keys | proof of work | GPU | in the browser |
 |---|---|---|---|---|
 | ngrind, cuda | 14 Gkeys/s | 7 to 11 GH/s | NVIDIA | no |
-| ngrind, wgpu | 1.4 to 2.6 Gkeys/s | 5 to 7.5 GH/s | any (Vulkan, Metal, DX12, WebGPU) | yes |
+| ngrind, wgpu | 2.3 to 2.5 Gkeys/s | 5 to 7.5 GH/s | any (Vulkan, Metal, DX12, WebGPU) | yes |
 | ngrind, cpu | 18 Mkeys/s | 0.65 GH/s | none | yes, with worker threads |
 | rummage (C++ and CUDA) | 217 Mkeys/s | 10.9 GH/s | NVIDIA | no |
 | rana 0.5.5 | 1.2 to 1.4 Mkeys/s | none | none | no |
+
+On an Apple M1 Pro (MacBook Pro, 10 cores, 16 GB) the wgpu backend runs on Metal:
+
+| ngrind on M1 Pro | vanity keys | proof of work |
+|---|---|---|
+| wgpu (Metal) | 152 Mkeys/s | 370 MH/s |
+| cpu, 10 threads | 2.9 Mkeys/s | 40 MH/s |
 
 ngrind's PoW kernel is rummage's, so the two match. The vanity gap is the method: rummage and rana compute every key with a full scalar multiplication, while ngrind steps along the curve from a random point and shares one field inversion across each batch of keys, as VanitySearch does. rana uses every core, but each key goes through the generic `nostr-sdk` key path.
 
