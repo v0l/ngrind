@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ngrind
+GenericName=Nostr Key and Proof of Work Miner
+Comment=Mine vanity npubs and NIP-13 proof of work events on the GPU or CPU
+Exec=ngrind-ui
+Icon=ngrind
+Terminal=false
+Categories=Utility;Network;
+Keywords=nostr;npub;vanity;pow;nip13;

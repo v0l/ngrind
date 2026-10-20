@@ -1,0 +1,134 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NGRIND_CUDA_ARCHS: "75,80,86,89,90,120"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            features: cuda,wgpu
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+            features: wgpu
+          - target: aarch64-apple-darwin
+            os: macos-14
+            features: wgpu
+          - target: x86_64-apple-darwin
+            os: macos-14
+            features: wgpu
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            features: cuda,wgpu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libwayland-dev libxkbcommon-dev libx11-dev
+      - name: cuda toolkit
+        if: contains(matrix.features, 'cuda')
+        uses: Jimver/cuda-toolkit@v0.2.24
+        with:
+          cuda: "12.8.1"
+          method: network
+          sub-packages: ${{ runner.os == 'Windows' && '["nvcc", "cudart", "visual_studio_integration"]' || '["nvcc", "cudart"]' }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked -p ngrind-cli -p ngrind-ui --no-default-features --features ${{ matrix.features }} --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          name=ngrind-${{ matrix.target }}
+          mkdir -p "dist/$name"
+          cp README.md LICENSE NOTICE CHANGELOG.md "dist/$name/"
+          cd dist
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp "../target/${{ matrix.target }}/release/ngrind.exe" "../target/${{ matrix.target }}/release/ngrind-ui.exe" "$name/"
+            7z a "$name.zip" "$name" >/dev/null
+            sha256sum "$name.zip" > "$name.zip.sha256"
+          else
+            cp "../target/${{ matrix.target }}/release/ngrind" "../target/${{ matrix.target }}/release/ngrind-ui" "$name/"
+            if [[ "${{ runner.os }}" == "Linux" ]]; then
+              cp ../packaging/linux/ngrind.desktop ../packaging/linux/ngrind.png "$name/"
+            fi
+            tar czf "$name.tar.gz" "$name"
+            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          fi
+      - name: app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "ngrind-ui") | .version')
+          app="dmg/ngrind.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          cp "target/${{ matrix.target }}/release/ngrind-ui" "target/${{ matrix.target }}/release/ngrind" "$app/Contents/MacOS/"
+          cp packaging/macos/icon.icns "$app/Contents/Resources/"
+          codesign --force --deep --sign - "$app"
+          ln -s /Applications dmg/Applications
+          name=ngrind-${{ matrix.target }}
+          hdiutil create -volname "ngrind" -srcfolder dmg -fs HFS+ -format UDZO -ov "dist/$name.dmg"
+          (cd dist && shasum -a 256 "$name.dmg" > "$name.dmg.sha256")
+      - name: install wix
+        if: runner.os == 'Windows'
+        run: dotnet tool install --global wix --version 5.0.2
+      - name: msi
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "ngrind-ui") | .version')
+          name=ngrind-${{ matrix.target }}
+          wix build -arch x64 -pdbtype none \
+            -d "Version=${version%%-*}" \
+            -d "BinDir=target/${{ matrix.target }}/release" \
+            -o "dist/$name.msi" packaging/windows/ngrind.wxs
+          (cd dist && sha256sum "$name.msi" > "$name.msi.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ngrind-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.dmg
+            dist/*.msi
+            dist/*.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          awk -v v="${TAG#v}" '/^## \[/{p=index($0,"[" v "]")>0;next} /^\[[^]]*\]: /{p=0} p' CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md has no entry for ${TAG#v}"; exit 1; }
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes-file notes.md

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="ngrind"
+      Manufacturer="v0l"
+      Version="$(var.Version)"
+      UpgradeCode="9e1ae798-2174-482c-b779-44a774230110"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ngrind is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="packaging\windows\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/v0l/ngrind" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ngrind">
+        <Component Id="AppExe" Guid="a5c1d591-2015-44a8-8421-bcf7793c8b10">
+          <File Id="NgrindUiExe" Source="$(var.BinDir)\ngrind-ui.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="CliExe" Guid="fa5f6b7f-6610-4693-a6b9-26a05cb5c52b">
+          <File Id="NgrindExe" Source="$(var.BinDir)\ngrind.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="AppDocs" Guid="f1eedc78-5138-42e7-96c0-715e191f0fc8">
+          <File Id="ReadmeMd" Source="README.md" KeyPath="yes" />
+          <File Id="LicenseTxt" Source="LICENSE" />
+          <File Id="NoticeTxt" Source="NOTICE" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="AppShortcut" Guid="1ccdd912-0cad-4d04-a145-6acaf49cece5">
+        <Shortcut Id="NgrindShortcut" Icon="AppIcon" Name="ngrind" Target="[#NgrindUiExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\v0l\ngrind" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="ngrind" Level="1">
+      <ComponentRef Id="AppExe" />
+      <ComponentRef Id="CliExe" />
+      <ComponentRef Id="AppDocs" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Package>
+</Wix>
