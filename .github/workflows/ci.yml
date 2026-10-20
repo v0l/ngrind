@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked --no-default-features --workspace
+      - run: cargo build --locked --release --no-default-features --workspace
+
+  cuda:
+    runs-on: ubuntu-22.04
+    container: nvidia/cuda:12.6.3-devel-ubuntu22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y curl build-essential pkg-config libwayland-dev libxkbcommon-dev libx11-dev
+      - run: curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: NGRIND_CUDA_ARCHS=75,80,86,89,90 cargo build --locked --release --workspace

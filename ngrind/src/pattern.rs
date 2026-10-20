@@ -19,7 +19,7 @@ impl Alphabet {
         }
     }
 
-    pub fn len(self) -> usize {
+    pub fn key_chars(self) -> usize {
         match self {
             Alphabet::Npub => NPUB_CHARS,
             Alphabet::Hex => 64,
@@ -88,13 +88,13 @@ impl Pattern {
         })
     }
 
-    pub fn len(&self) -> usize {
+    pub fn chars(&self) -> usize {
         self.prefix.len() + self.suffix.len()
     }
 
     pub fn bits(&self) -> f64 {
         let radix_bits = (self.alphabet.radix() as f64).log2();
-        let mut bits = self.len() as f64 * radix_bits;
+        let mut bits = self.chars() as f64 * radix_bits;
         if self.alphabet == Alphabet::Npub && !self.suffix.is_empty() {
             bits -= radix_bits - 1.0;
         }
@@ -110,7 +110,7 @@ impl Pattern {
             Alphabet::Npub => group,
             Alphabet::Hex => nibble,
         };
-        let total = self.alphabet.len();
+        let total = self.alphabet.key_chars();
         self.prefix_values
             .iter()
             .enumerate()
@@ -166,7 +166,11 @@ fn group(public: &[u8; 32], i: usize) -> u8 {
 
 fn nibble(public: &[u8; 32], i: usize) -> u8 {
     let byte = public[i / 2];
-    if i % 2 == 0 { byte >> 4 } else { byte & 15 }
+    if i.is_multiple_of(2) {
+        byte >> 4
+    } else {
+        byte & 15
+    }
 }
 
 #[cfg(test)]

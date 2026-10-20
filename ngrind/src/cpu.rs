@@ -227,8 +227,7 @@ pub fn pow_search(
             });
         }
     });
-    let nonce = *found.lock().expect("no panic holds this lock");
-    nonce
+    *found.lock().expect("no panic holds this lock")
 }
 
 pub fn pow(

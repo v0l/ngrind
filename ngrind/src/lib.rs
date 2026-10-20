@@ -1,3 +1,4 @@
+#![allow(clippy::chunks_exact_to_as_chunks)]
 pub mod control;
 pub mod cpu;
 #[cfg(feature = "cuda")]

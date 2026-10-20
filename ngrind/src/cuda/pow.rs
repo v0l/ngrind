@@ -169,7 +169,7 @@ impl PowMiner {
         let (midstate, consumed) = sha::midstate(prefix);
         let rem = prefix.len() - consumed;
         let mut layouts: Vec<Layout> = (MIN_NONCE_DIGITS..=MAX_NONCE_DIGITS)
-            .filter(|digits| (rem + digits - LOW_DIGITS) % 4 == 0)
+            .filter(|digits| (rem + digits - LOW_DIGITS).is_multiple_of(4))
             .map(|digits| build_layout(prefix, suffix, consumed, rem, digits))
             .collect();
         layouts.sort_by(|a, b| a.cost.cmp(&b.cost).then(b.digits.cmp(&a.digits)));
@@ -313,8 +313,8 @@ impl PowMiner {
         digest.update(nonce.to_string());
         digest.update(&st.suffix);
         let hash: [u8; 32] = digest.finalize().into();
-        for i in 0..8 {
-            let word = if i % 2 == 0 {
+        for i in 0usize..8 {
+            let word = if i.is_multiple_of(2) {
                 out[1 + i / 2] as u32
             } else {
                 (out[1 + i / 2] >> 32) as u32
