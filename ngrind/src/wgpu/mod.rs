@@ -39,6 +39,18 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn hardware_gpu() -> Option<std::sync::Arc<Gpu>> {
+    let found = pollster::block_on(list());
+    match found.iter().position(|a| !a.software) {
+        Some(i) => test_gpu(i),
+        None => {
+            eprintln!("skipped: no hardware wgpu adapter, this test is too slow on a software one");
+            None
+        }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) fn test_gpu(index: usize) -> Option<std::sync::Arc<Gpu>> {
     let found = pollster::block_on(list());
     if found.is_empty() {

@@ -374,13 +374,25 @@ mod tests {
     #[test]
     fn first_adapter_finds_verified_events() {
         for fast in [false, true] {
-            run(0, "hello from wgpu \"quoted\" 日本語", fast, 20);
+            let Some(i) = pollster::block_on(super::super::list())
+                .iter()
+                .position(|a| !a.software)
+            else {
+                return;
+            };
+            run(i, "hello from wgpu \"quoted\" 日本語", fast, 20);
         }
     }
 
     #[test]
     fn a_long_note_spills_into_a_second_block() {
-        run(0, &"long note ".repeat(30), false, 18);
+        let Some(i) = pollster::block_on(super::super::list())
+            .iter()
+            .position(|a| !a.software)
+        else {
+            return;
+        };
+        run(i, &"long note ".repeat(30), false, 18);
     }
 
     #[test]

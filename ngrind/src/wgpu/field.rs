@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn field_arithmetic_matches_big_integers() {
-        let Some(gpu) = crate::wgpu::test_gpu(0) else {
+        let Some(gpu) = crate::wgpu::hardware_gpu() else {
             return;
         };
         let p = prime();

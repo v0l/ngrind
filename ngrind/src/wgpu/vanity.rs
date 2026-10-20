@@ -381,8 +381,15 @@ mod tests {
     }
 
     fn check(pattern: Pattern, want: usize, accept: impl Fn(&str, &str) -> bool) {
+        let Some(adapter) = pollster::block_on(super::super::list())
+            .iter()
+            .position(|a| !a.software)
+        else {
+            eprintln!("skipped: no hardware wgpu adapter");
+            return;
+        };
         let Some(found) = collect(
-            0,
+            adapter,
             pattern,
             want,
             VanityConfig {
@@ -448,7 +455,7 @@ mod tests {
 
     fn replay(threads: u32, half: usize, dispatches: i128) {
         let pattern = Pattern::parse(Alphabet::Hex, "a", "").unwrap();
-        let Some(gpu) = crate::wgpu::test_gpu(0) else {
+        let Some(gpu) = crate::wgpu::hardware_gpu() else {
             return;
         };
         let mut miner = WgpuVanity::new(
@@ -497,7 +504,7 @@ mod tests {
     #[test]
     fn every_key_is_checked_exactly_once() {
         let pattern = Pattern::parse(Alphabet::Hex, "abcde", "").unwrap();
-        let Some(gpu) = crate::wgpu::test_gpu(0) else {
+        let Some(gpu) = crate::wgpu::hardware_gpu() else {
             return;
         };
         let mut miner = WgpuVanity::new(
