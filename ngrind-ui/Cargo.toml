@@ -23,7 +23,7 @@ ngrind = { path = "../ngrind", default-features = false }
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "persistence"] }
 web-time = "1"
 egui = "0.37"
-egui_bench = "0.9.1"
+egui_bench = "0.9.2"
 secp256k1 = "0.33"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
