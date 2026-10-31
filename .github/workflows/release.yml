@@ -24,10 +24,10 @@ jobs:
             os: ubuntu-22.04-arm
             features: wgpu
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
             features: wgpu
           - target: x86_64-apple-darwin
-            os: macos-14
+            os: macos-15
             features: wgpu
           - target: x86_64-pc-windows-msvc
             os: windows-latest
