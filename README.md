@@ -64,10 +64,18 @@ ngrind vanity --prefix ac --suffix q --device cpu
 ngrind vanity --hex --prefix cafe
 ngrind vanity --prefix satoshi --checkpoint run.ckpt
 ngrind pow --file note.json --difficulty 28 --nsec nsec1...
+ngrind pow --file note.json --difficulty 28 --nsec-stdin
+ngrind pow --file note.json --difficulty 28 --nsec-file key.txt
 ngrind pow --event '{"pubkey":"...","kind":1,"content":"gm"}' --difficulty 24 --fast
 ```
 
 Found keys print to stdout. Progress, speed and the chance of a hit so far go to stderr every five seconds. With `--checkpoint` the search is sequential and resumable (cuda only). The checkpoint holds the search offset, so keep it private (mode 0600).
+
+An `--nsec` given on the command line is visible to every process on the machine (`ps`, `/proc/<pid>/cmdline`) and stays in the shell history. `--nsec-stdin` reads the key from the first line of standard input and `--nsec-file` from the first line of a file; both keep the key out of argv:
+
+```bash
+echo "nsec1..." | ngrind pow --file note.json --difficulty 28 --nsec-stdin
+```
 
 ## Credits
 

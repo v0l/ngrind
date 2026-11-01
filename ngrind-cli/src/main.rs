@@ -81,8 +81,19 @@ struct PowArgs {
     #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=256))]
     difficulty: u32,
 
+    /// Secret key as nsec or 64 digit hex. Visible to every process on the
+    /// machine (ps, /proc/<pid>/cmdline) and to the shell history; prefer
+    /// --nsec-stdin or --nsec-file.
     #[arg(long)]
     nsec: Option<String>,
+
+    /// Read the secret key from the first line of standard input.
+    #[arg(long, conflicts_with_all = ["nsec", "nsec_file"])]
+    nsec_stdin: bool,
+
+    /// Read the secret key from the first line of a file.
+    #[arg(long, conflicts_with_all = ["nsec", "nsec_stdin"])]
+    nsec_file: Option<PathBuf>,
 
     #[arg(long)]
     fast: bool,
@@ -284,6 +295,44 @@ fn choose(common: &Common) -> Result<ngrind::backend::Backend> {
         })
 }
 
+fn read_secret(read: &mut dyn std::io::Read) -> Result<[u8; 32]> {
+    let mut text = String::new();
+    read.read_to_string(&mut text)
+        .context("reading the secret key")?;
+    let line = text.lines().next().unwrap_or_default().trim();
+    keys::parse_secret_any(line).map_err(anyhow::Error::msg)
+}
+
+fn signer_of(args: &PowArgs) -> Result<Option<Keypair>> {
+    let secret = if args.nsec_stdin {
+        eprintln!("waiting for the nsec on standard input (first line)");
+        Some(read_secret(&mut std::io::stdin().lock())?)
+    } else if let Some(path) = &args.nsec_file {
+        Some(read_secret(&mut std::fs::File::open(path).with_context(|| {
+            format!("reading {}", path.display())
+        })?)?)
+    } else {
+        if args.nsec.is_some() {
+            eprintln!(
+                "warning: --nsec puts the secret key on the command line, where ps, \
+                 /proc/<pid>/cmdline and the shell history can read it; \
+                 prefer --nsec-stdin or --nsec-file"
+            );
+        }
+        match args.nsec.as_deref() {
+            Some(text) => Some(keys::parse_secret_any(text).map_err(anyhow::Error::msg)?),
+            None => None,
+        }
+    };
+    secret
+        .map(|secret| {
+            Ok(Keypair::from_secret_key(&SecretKey::from_secret_bytes(
+                secret,
+            )?))
+        })
+        .transpose()
+}
+
 fn pow(args: PowArgs) -> Result<()> {
     let text = match (&args.event, &args.file) {
         (Some(json), _) => json.clone(),
@@ -293,15 +342,7 @@ fn pow(args: PowArgs) -> Result<()> {
         _ => bail!("give the event with --event or --file"),
     };
     let event: serde_json::Value = serde_json::from_str(&text).context("the event is not JSON")?;
-    let signer = match &args.nsec {
-        Some(text) => {
-            let secret = keys::parse_secret_any(text).map_err(anyhow::Error::msg)?;
-            Some(Keypair::from_secret_key(&SecretKey::from_secret_bytes(
-                secret,
-            )?))
-        }
-        None => None,
-    };
+    let signer = signer_of(&args)?;
     let pubkey = match &signer {
         Some(pair) => keys::hex(&pair.x_only_public_key().0.to_byte_array()),
         None => event["pubkey"]
@@ -392,5 +433,33 @@ fn main() -> Result<()> {
             devices();
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_an_nsec_from_a_stream() {
+        let nsec = keys::nsec(&[7u8; 32]);
+        let mut read = std::io::Cursor::new(format!("{nsec}\nand more\n"));
+        assert_eq!(read_secret(&mut read).unwrap(), [7u8; 32]);
+    }
+
+    #[test]
+    fn reads_a_hex_secret_from_a_stream() {
+        let mut read = std::io::Cursor::new(format!("0x{}\n", keys::hex(&[9u8; 32])));
+        assert!(read_secret(&mut read).is_err());
+        let mut read = std::io::Cursor::new(format!("{}\n", keys::hex(&[9u8; 32])));
+        assert_eq!(read_secret(&mut read).unwrap(), [9u8; 32]);
+    }
+
+    #[test]
+    fn rejects_a_stream_without_a_secret() {
+        let mut npub = std::io::Cursor::new(keys::npub(&[7u8; 32]));
+        assert!(read_secret(&mut npub).is_err());
+        let mut empty = std::io::Cursor::new("");
+        assert!(read_secret(&mut empty).is_err());
     }
 }
