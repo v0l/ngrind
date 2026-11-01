@@ -12,6 +12,10 @@ All notable changes to ngrind are listed here. The format follows
   `/proc/<pid>/cmdline` and the shell history can see it. `--nsec` still works
   and now prints a warning.
 
+### Changed
+- CI and release workflows pin every GitHub Action to a commit SHA and
+  run with least-privilege `permissions` (only the release job can write).
+
 ## [0.1.2] - 2026-11-16
 
 ### Fixed

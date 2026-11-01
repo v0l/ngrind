@@ -6,13 +6,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   NGRIND_CUDA_ARCHS: "75,80,86,89,90,120"
 
 jobs:
   build:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -34,13 +36,13 @@ jobs:
             features: cuda,wgpu
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libwayland-dev libxkbcommon-dev libx11-dev
       - name: cuda toolkit
         if: contains(matrix.features, 'cuda')
-        uses: Jimver/cuda-toolkit@v0.2.36
+        uses: Jimver/cuda-toolkit@b8bf9c6c28f8a92fbb04dcfcaee872e60c57462d # v0.2.36
         with:
           cuda: "13.2.2"
           method: network
@@ -48,11 +50,12 @@ jobs:
           non-cuda-sub-packages: ${{ runner.os == 'Windows' && '[]' || '["libcurand-dev"]' }}
       - name: msvc for nvcc
         if: contains(matrix.features, 'cuda') && runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-      - uses: dtolnay/rust-toolchain@stable
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --locked -p ngrind-cli -p ngrind-ui --no-default-features --features ${{ matrix.features }} --target ${{ matrix.target }}
@@ -106,7 +109,7 @@ jobs:
             -d "BinDir=target/${{ matrix.target }}/release" \
             -o "dist/$name.msi" packaging/windows/ngrind.wxs
           (cd dist && sha256sum "$name.msi" > "$name.msi.sha256")
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ngrind-${{ matrix.target }}
           if-no-files-found: error
@@ -121,15 +124,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Release notes
         env:
           TAG: ${{ github.ref_name }}
         run: |
           awk -v v="${TAG#v}" '/^## \[/{p=index($0,"[" v "]")>0;next} /^\[[^]]*\]: /{p=0} p' CHANGELOG.md > notes.md
           grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md has no entry for ${TAG#v}"; exit 1; }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           merge-multiple: true
