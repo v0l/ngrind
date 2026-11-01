@@ -6,6 +6,12 @@ All notable changes to ngrind are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The web build ships a Content-Security-Policy and hardening headers
+  (`_headers` and the local `serve.py`), and `serve.py` binds to
+  127.0.0.1 unless an address is given. `deploy.sh` pins the `wrangler`
+  major version.
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed
