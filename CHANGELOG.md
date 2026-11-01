@@ -6,6 +6,12 @@ All notable changes to ngrind are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `ngrind pow --nsec-stdin` and `--nsec-file <path>`, which read the signing key
+  from standard input or a file instead of the command line, where `ps`,
+  `/proc/<pid>/cmdline` and the shell history can see it. `--nsec` still works
+  and now prints a warning.
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed
