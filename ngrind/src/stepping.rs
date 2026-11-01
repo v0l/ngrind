@@ -112,3 +112,94 @@ impl Decoder {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::Alphabet;
+    use secp256k1::SecretKey;
+
+    fn decoder(origin: SecretKey, half: usize, prefix: &str) -> Decoder {
+        Decoder {
+            origin,
+            half,
+            pattern: Pattern::parse(Alphabet::Hex, prefix, "").expect("a valid hex prefix"),
+        }
+    }
+
+    #[test]
+    fn decodes_the_exact_scalar_around_the_window() {
+        let mut bytes = [0u8; 32];
+        bytes[0] = 0x42;
+        let origin = SecretKey::from_secret_bytes(bytes).expect("a small valid secret");
+        let half = 4usize;
+        for advanced in [0u64, 5, 70_000] {
+            for delta in [-(half as i128), -1, 0, 1, half as i128] {
+                let (code, key) = (
+                    (delta + half as i128) as u32,
+                    offset_secret(&thread_secret(&origin, 3).unwrap(), advanced as i128 * (2 * half as i128 + 1) + delta)
+                        .unwrap(),
+                );
+                let x = keys::public_of(&key.to_secret_bytes()).unwrap();
+                let prefix = keys::hex(&x)[..1].to_string();
+                match decoder(origin, half, &prefix).decode(advanced, 3, code, x) {
+                    Decoded::Hit(private, seen) => {
+                        assert_eq!(private, key.to_secret_bytes());
+                        assert_eq!(seen, x);
+                    }
+                    Decoded::Rejected => panic!("delta {delta} at iteration {advanced} must decode"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_a_foreign_x_and_a_mismatched_pattern() {
+        let origin = keys::random_secret();
+        let half = 4;
+        let key = offset_secret(&thread_secret(&origin, 1).unwrap(), 7).unwrap();
+        let x = keys::public_of(&key.to_secret_bytes()).unwrap();
+        let other = keys::public_of(&[0x33u8; 32]).unwrap();
+        // a foreign x-coordinate fails verification even with a matching pattern
+        assert!(matches!(
+            decoder(origin, half, "0").decode(0, 1, 7 + half as u32, other),
+            Decoded::Rejected
+        ));
+        // a pattern the key does not match rejects a correctly verified x
+        let prefix = if keys::hex(&x).starts_with('0') { "1" } else { "0" };
+        assert!(matches!(
+            decoder(origin, half, prefix).decode(0, 1, 7 + half as u32, x),
+            Decoded::Rejected
+        ));
+        // the exact combination decodes
+        assert!(matches!(
+            decoder(origin, half, &keys::hex(&x)[..1]).decode(0, 1, 7 + half as u32, x),
+            Decoded::Hit(..)
+        ));
+    }
+
+    #[test]
+    fn decodes_keys_that_wrap_across_the_curve_order() {
+        // origin = n - 1 (one, negated): a small positive step wraps to a tiny scalar
+        let one = SecretKey::from_secret_bytes({
+            let mut bytes = [0u8; 32];
+            bytes[31] = 1;
+            bytes
+        })
+        .expect("one is a valid secret");
+        let origin = one.negate();
+        let half = 4;
+        // delta +2 from the origin at iteration 0, code = half + 2
+        let key = offset_secret(&origin, 2).unwrap();
+        let expected = key.to_secret_bytes();
+        assert_eq!(expected[31], 1, "n - 1 + 2 wraps to 1");
+        let x = keys::public_of(&expected).unwrap();
+        assert!(
+            matches!(
+                decoder(origin, half, &keys::hex(&x)[..1]).decode(0, 0, (half + 2) as u32, x),
+                Decoded::Hit(..)
+            ),
+            "a wrapped key still decodes to its true scalar"
+        );
+    }
+}
