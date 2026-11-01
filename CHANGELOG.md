@@ -6,6 +6,10 @@ All notable changes to ngrind are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- CI and release workflows pin every GitHub Action to a commit SHA and
+  run with least-privilege `permissions` (only the release job can write).
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed
