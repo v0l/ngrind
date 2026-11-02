@@ -254,6 +254,12 @@ impl eframe::App for App {
                     .inner_margin(Margin::symmetric(12, 6)),
             )
             .show(ui, |ui| self.footer(ui));
+        if let Some((text, fault)) = self.notice.clone() {
+            let tone = if fault { Tone::Fault } else { Tone::Ok };
+            if egui_bench::toast::toast(ui.ctx(), "notice", &text, tone) {
+                self.notice = None;
+            }
+        }
         egui::Panel::left("setup")
             .exact_size(SIDE_W)
             .resizable(false)
@@ -352,16 +358,10 @@ impl App {
             egui::Stroke::new(1.0, ETCH),
         );
         ui.horizontal(|ui| match (&self.notice, self.run.as_ref()) {
-            (Some((text, fault)), _) => {
-                status(ui, !*fault, text);
-                if ui.add(Key::new("dismiss").outline(VALUE)).clicked() {
-                    self.notice = None;
-                }
-            }
-            (None, Some(run)) if run.error.is_some() => {
+            (_, Some(run)) if run.error.is_some() => {
                 status(ui, false, run.error.as_deref().unwrap_or_default());
             }
-            (None, Some(run)) if run.live() => {
+            (_, Some(run)) if run.live() => {
                 let text = match run.switching() {
                     Some(b) => format!("moving to the {}", b.label()),
                     None => match run.phase {

@@ -6,6 +6,9 @@ All notable changes to ngrind are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The notification at the bottom of the window is now a toast with a fixed width range, and its dismiss button no longer wraps.
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed
