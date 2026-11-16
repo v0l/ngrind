@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "ngrind"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "bech32",
  "cudarc",
@@ -2602,7 +2602,7 @@ dependencies = [
 
 [[package]]
 name = "ngrind-cli"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2615,7 +2615,7 @@ dependencies = [
 
 [[package]]
 name = "ngrind-ui"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2631,7 +2631,7 @@ dependencies = [
 
 [[package]]
 name = "ngrind-web"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "console_error_panic_hook",
  "eframe",

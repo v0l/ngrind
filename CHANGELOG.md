@@ -6,6 +6,8 @@ All notable changes to ngrind are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-16
+
 ### Added
 - `ngrind pow --nsec-stdin` and `--nsec-file <path>`, which read the signing key
   from standard input or a file instead of the command line, where `ps`,
@@ -13,6 +15,8 @@ All notable changes to ngrind are listed here. The format follows
   and now prints a warning.
 
 ### Changed
+- tokio is updated past RUSTSEC-2026-0384.
+- A `deny.toml` checks advisories, licences and sources.
 - CI and release workflows pin every GitHub Action to a commit SHA and
   run with least-privilege `permissions` (only the release job can write).
 
