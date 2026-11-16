@@ -6,6 +6,11 @@ All notable changes to ngrind are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-16
+
+### Fixed
+- The CUDA proof of work miner keeps its device and pinned buffers across `init` calls instead of allocating them on every refresh, so a long running miner no longer allocates under memory pressure.
+
 ### Changed
 - The notification at the bottom of the window is now a toast with a fixed width range, and its dismiss button no longer wraps.
 

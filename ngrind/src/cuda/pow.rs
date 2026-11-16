@@ -2,9 +2,10 @@ use super::{Device, Error};
 use crate::powlayout::{LOW_DIGITS, NONCES_PER_UNIT, Plan, PowHit};
 use crate::sha;
 use cudarc::driver::{
-    CudaEvent, CudaFunction, CudaSlice, DeviceRepr, LaunchConfig, PinnedHostSlice, PushKernelArg,
+    CudaEvent, CudaFunction, CudaSlice, CudaStream, DeviceRepr, LaunchConfig, PinnedHostSlice, PushKernelArg,
 };
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 static FATBIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pow.fatbin"));
 
@@ -63,7 +64,6 @@ struct State {
     device_layouts: Vec<DeviceLayout>,
     cursor: u64,
     limit: u64,
-    slots: Vec<Slot>,
     head: usize,
     in_flight: usize,
 }
@@ -72,6 +72,8 @@ pub struct PowMiner {
     dev: Option<Device>,
     funcs: Vec<Option<CudaFunction>>,
     state: Option<State>,
+    slots: Vec<Slot>,
+    trails: Vec<CudaSlice<u32>>,
     attempts: u64,
 }
 
@@ -87,6 +89,8 @@ impl PowMiner {
             dev: None,
             funcs: (0..32).map(|_| None).collect(),
             state: None,
+            slots: Vec::new(),
+            trails: Vec::new(),
             attempts: 0,
         }
     }
@@ -109,13 +113,15 @@ impl PowMiner {
         target: u32,
         device: u32,
     ) -> Result<(), Error> {
-        self.state = None;
+        self.release_state()?;
         self.attempts = 0;
         if !(1..=256).contains(&target) {
             return Err(Error::InvalidDifficulty(target));
         }
         if self.dev.as_ref().is_none_or(|d| d.ordinal != device) {
             self.funcs.iter_mut().for_each(|f| *f = None);
+            self.slots.clear();
+            self.trails.clear();
             self.dev = None;
             let dev = Device::open(device, FATBIN)?;
             unsafe { dev.ctx.disable_event_tracking() };
@@ -124,6 +130,37 @@ impl PowMiner {
         let state = self.setup(prefix.as_bytes(), suffix.as_bytes(), target)?;
         self.state = Some(state);
         Ok(())
+    }
+
+    fn release_state(&mut self) -> Result<(), Error> {
+        if let Some(state) = self.state.take() {
+            if state.in_flight > 0 {
+                if let Some(dev) = self.dev.as_ref() {
+                    dev.stream.synchronize()?;
+                }
+            }
+            for layout in state.device_layouts {
+                if let Some(buf) = layout.device_trail {
+                    self.trails.push(buf);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn allocations(&self) -> usize {
+        self.slots.len() + self.trails.len()
+    }
+
+    fn trail_buffer(&mut self, stream: &Arc<CudaStream>, words: &[u32]) -> Result<CudaSlice<u32>, Error> {
+        match self.trails.iter().position(|b| b.len() >= words.len()) {
+            Some(i) => {
+                let mut buf = self.trails.swap_remove(i);
+                stream.memcpy_htod(words, &mut buf)?;
+                Ok(buf)
+            }
+            None => Ok(stream.clone_htod(words)?),
+        }
     }
 
     fn function(&mut self, b0: usize, wv: usize) -> Result<&CudaFunction, Error> {
@@ -147,7 +184,7 @@ impl PowMiner {
         let mut device_layouts = Vec::with_capacity(plan.layouts.len());
         for l in &plan.layouts {
             let device_trail = if l.n_trail > 0 {
-                Some(stream.clone_htod(&l.trail_kw)?)
+                Some(self.trail_buffer(&stream, &l.trail_kw)?)
             } else {
                 None
             };
@@ -162,14 +199,13 @@ impl PowMiner {
         }
 
         let ctx = stream.context().clone();
-        let mut slots = Vec::with_capacity(SLOTS);
-        for _ in 0..SLOTS {
+        while self.slots.len() < SLOTS {
             let device = stream.alloc_zeros::<u64>(OUT_WORDS)?;
             let host = unsafe { ctx.alloc_pinned_with_flags::<u64>(OUT_WORDS, 0) }?;
             let done = ctx.new_event(Some(
                 cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC,
             ))?;
-            slots.push(Slot {
+            self.slots.push(Slot {
                 device,
                 host,
                 done,
@@ -183,7 +219,6 @@ impl PowMiner {
             device_layouts,
             cursor: 0,
             limit,
-            slots,
             head: 0,
             in_flight: 0,
         })
@@ -209,7 +244,7 @@ impl PowMiner {
                 Some(buf) => device_pointer(buf, dev),
                 None => 0,
             };
-            let out_ptr = device_pointer(&st.slots[index].device, dev);
+            let out_ptr = device_pointer(&self.slots[index].device, dev);
             let params = Params {
                 midstate: st.plan.midstate,
                 tpl: l.tpl,
@@ -229,7 +264,7 @@ impl PowMiner {
         let func = self.function(b0, wv)?.clone();
         let dev = self.dev.as_ref().expect("opened by init");
         let st = self.state.as_mut().expect("checked by mine");
-        let slot = &mut st.slots[index];
+        let slot = &mut self.slots[index];
         dev.stream.memset_zeros(&mut slot.device)?;
         let cfg = LaunchConfig {
             grid_dim: (count.div_ceil(THREADS), 1, 1),
@@ -264,7 +299,7 @@ impl PowMiner {
         if st.in_flight == 0 {
             return Err(Error::Exhausted);
         }
-        let slot = &st.slots[st.head];
+        let slot = &self.slots[st.head];
         slot.done.synchronize()?;
         let out: [u64; OUT_WORDS] =
             unsafe { std::slice::from_raw_parts(slot.host.as_ptr()?, OUT_WORDS) }
@@ -314,4 +349,33 @@ fn device_pointer<T>(buf: &CudaSlice<T>, dev: &Device) -> u64 {
     use cudarc::driver::DevicePtr;
     let (ptr, _guard) = buf.device_ptr(&dev.stream);
     ptr
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gpu() -> bool {
+        super::super::device_count() > 0
+    }
+
+    #[test]
+    fn buffers_are_reused_across_init_calls() {
+        if !gpu() {
+            return;
+        }
+        let mut miner = PowMiner::new();
+        miner.init("{\"a\":\"", "\"}", 8, 0).unwrap();
+        let first = miner.allocations();
+        let ptr = device_pointer(&miner.slots[0].device, miner.dev.as_ref().unwrap());
+        for _ in 0..5 {
+            miner.init("{\"a\":\"", "\"}", 8, 0).unwrap();
+            assert!(miner.mine().is_ok());
+        }
+        assert_eq!(miner.allocations(), first);
+        assert_eq!(
+            device_pointer(&miner.slots[0].device, miner.dev.as_ref().unwrap()),
+            ptr
+        );
+    }
 }
