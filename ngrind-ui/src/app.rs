@@ -299,14 +299,24 @@ impl eframe::App for App {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn on_exit(&mut self) {
+        self.shutdown_run();
+    }
+
+    #[cfg(target_arch = "wasm32")]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if let Some(run) = self.run.as_mut() {
-            run.shutdown();
-        }
+        self.shutdown_run();
     }
 }
 
 impl App {
+    fn shutdown_run(&mut self) {
+        if let Some(run) = self.run.as_mut() {
+            run.shutdown();
+        }
+    }
+
     fn header(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let mut job = LayoutJob::default();
