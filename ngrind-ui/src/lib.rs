@@ -1,6 +1,8 @@
 pub mod app;
 mod fmt;
 mod job;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod render_check;
 mod work;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
