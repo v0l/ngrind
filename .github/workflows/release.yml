@@ -128,6 +128,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - name: Source archive
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          name=ngrind-${TAG}-source.tar.gz
+          git ls-files --recurse-submodules -z | tar --null -T - --transform "s,^,ngrind-${TAG}/," -czf "dist/$name"
+          (cd dist && sha256sum "$name" > "$name.sha256")
       - name: Release notes
         env:
           TAG: ${{ github.ref_name }}
